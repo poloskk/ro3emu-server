@@ -48,8 +48,8 @@ your characters), `logs\` and `RO3Emu.settings.json`.
 **Rates.** `"ExpRate"` in `RO3Emu.settings.json` multiplies the EXP of monster kills (Base and Job): `1` is the
 original game, `3` three times as much. Quest and reward EXP stay as the game sets them. `"BonusTimeDrain"` is how
 fast field Bonus Time (the auto-battle timer) runs down: `0` never (the default), `0.25` four times slower, `1` the
-original. `"CrystalDropChance"` is the chance an elite, mini-boss or MVP kill drops Sacred Relic Crystals (1-3, MVPs
-10-20; `0` never). Player stalls show on every line of a town. Restart RO3Emu.exe after changing a setting.
+original. `"CrystalDropChance"` is the chance an elite, mini-boss or MVP kill drops Sacred Relic Crystals (3-8, MVPs
+20-40; `0` never). While it is on, an ordinary monster drops one now and then, as rarely as Arcane Ore (0.76% a kill). Player stalls show on every line of a town. Restart RO3Emu.exe after changing a setting.
 
 > [!WARNING]
 > Don't let the publisher's launcher repair a patched game folder: it puts the original DLLs back. Run RO3Emu.exe

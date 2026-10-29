@@ -7,7 +7,8 @@ namespace Ro3Emu.Tests;
 
 public sealed partial class SkillCombatTests
 {
-    /// <summary>Ro3Emu:CrystalDrops: a mini-boss kill drops 1-3 Sacred Relic Crystals (item 3), an ordinary kill none.</summary>
+    /// <summary>Ro3Emu:CrystalDrops: a mini-boss kill drops 3-8 Sacred Relic Crystals (item 3), an ordinary kill none
+    /// while NormalChance is 0.</summary>
     [ClientDataFact]
     public async Task AMiniBossKillDropsSacredRelicCrystalsAndAnOrdinaryKillNone()
     {
@@ -19,7 +20,7 @@ public sealed partial class SkillCombatTests
         Assert.Equal(before, Crystals());
         await Kill(alice, await Target("alice", stationary: true, npcId: 5001027)); // MT_MINI
         for (int i = 0; i < 100 && Crystals() == before; i++) await Task.Delay(20);
-        Assert.InRange(Crystals() - before, 1, 3);
+        Assert.InRange(Crystals() - before, 3, 8);
     }
 
     private async Task Kill(BotClient bot, MonsterUnit target)

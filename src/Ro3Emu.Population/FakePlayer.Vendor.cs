@@ -31,7 +31,12 @@ public sealed partial class FakePlayer
                 return;
             }
         }
-        else if (stall.Itembase.Count < StallSize / 2) await RestockAsync(StallSize - stall.Itembase.Count, ct);
+        else
+        {
+            _stocked.Clear();
+            if (stall.Itembase.Count < StallSize / 2) await RestockAsync(StallSize - stall.Itembase.Count, ct);
+            await RetitleAsync(stall, ct);
+        }
         for (int i = _random.Next(10, 30); i > 0 && !ct.IsCancellationRequested && !InParty; i--)
         {
             await PauseAsync(20, 40, ct);
@@ -63,7 +68,7 @@ public sealed partial class FakePlayer
         await GoAsync(Jitter(spot), ct);
         for (int attempt = 0; attempt < 6; attempt++)
         {
-            var req = new PlayerStartStallsReq { StallsTitle = StallTitle() };
+            var req = new PlayerStartStallsReq { StallsTitle = StallTitle(_stocked) };
             req.Itembase.Add(offers);
             int result = await StallRequestAsync(StallsService.Start, req, PlayerStartStallsRsp.Parser, r => r.Result, ct);
             if (result is 0 or ErrorCodes.StallExists)
@@ -155,18 +160,51 @@ public sealed partial class FakePlayer
         return [.. ctx.Goods.Where(g => (g.Currency == CrystalCurrency) == crystal)];
     }
 
+    /// <summary>
+    /// A stall kept from an earlier session keeps its sign, though its goods were restocked since (and older signs
+    /// named nothing: "Best prices"): the sign is renamed (33410) to what the stall holds now, when it differs.
+    /// </summary>
+    private async Task RetitleAsync(StallsInfo stall, CancellationToken ct)
+    {
+        var entries = stall.Itembase.Select(i => i.Itembase?.ItemEntry ?? 0).ToHashSet();
+        var held = ctx.Goods.Where(g => entries.Contains(g.ItemId)).Concat(_stocked);
+        string title = StallTitle(held);
+        if (stall.Baseinfo?.StallsTitle == title) return;
+        int result = await StallRequestAsync(StallsService.Rename, new PlayerUpdateStallsNameReq { StallsTitle = title },
+            PlayerUpdateStallsNameResp.Parser, r => r.Result, ct);
+        if (result == 0) PopulationContext.Log($"{entry.Name}: stall renamed \"{title}\"");
+    }
+
     /// <summary>The stall's sign names what it sells, the way players advertise ("S&gt; Red Lv90, Red Lv70"), as many
     /// goods as the title holds (ServerOptions.StallNameMaxLength, 24).</summary>
-    private string StallTitle()
+    private string StallTitle(IEnumerable<StallGood> goods)
     {
         const int Room = 24;
         string title = "";
-        foreach (var label in _stocked.Select(g => g.Label is "" ? g.Name : g.Label).Distinct())
+        foreach (var label in goods.Select(g => g.Label is "" ? SignName(g.Name) : g.Label).Distinct())
         {
             string next = title == "" ? $"S> {label}" : $"{title}, {label}";
-            if (next.Length > Room) { if (title == "") title = next[..Room]; break; }
+            if (next.Length > Room) { if (title == "") title = Fit(next, Room); break; }
             title = next;
         }
         return title == "" ? $"{entry.Name}'s shop" : title;
+    }
+
+    /// <summary>A sign gives the base name: "Eagle Eye Scroll · Dual Wield - Green" reads "Eagle Eye Scroll", "Sun Star
+    /// Core - Blue" reads "Sun Star Core" (the colour is the item's own).</summary>
+    private static string SignName(string name)
+    {
+        string head = name.Split('·')[0].Trim();
+        int tier = head.LastIndexOf(" - ", StringComparison.Ordinal);
+        if (tier > 0) head = head[..tier];
+        return head.Length > 0 ? head : name;
+    }
+
+    /// <summary>Cut at the last word or hyphen that keeps two thirds of the sign, else mid-word with an ellipsis.</summary>
+    private static string Fit(string text, int room)
+    {
+        string cut = text[..room];
+        int at = cut.LastIndexOfAny([' ', '-']);
+        return at >= room * 2 / 3 ? cut[..at].TrimEnd(' ', '-') : cut[..(room - 1)] + "…";
     }
 }

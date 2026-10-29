@@ -96,7 +96,8 @@ public sealed class ServerOptions
     /// <summary>Monster kill EXP as a multiple of the original's (inferred, not original: a realm policy; 1 = the client's tables).</summary>
     public double ExpRate { get; set; } = 1;
 
-    /// <summary>Sacred Relic Crystals from elite, mini-boss and MVP kills (inferred, not original: a realm policy; off by default).</summary>
+    /// <summary>Sacred Relic Crystals from elite, mini-boss and MVP kills, rarely from ordinary ones (inferred, not
+    /// original: a realm policy; off by default).</summary>
     public CrystalDropOptions CrystalDrops { get; set; } = new();
 
     /// <summary>Field Bonus Time drained per second of eligible play (inferred, not original: a realm policy; 1 = the
@@ -324,12 +325,19 @@ public sealed class VoiceOptions
 /// </summary>
 public sealed class CrystalDropOptions
 {
+    /// <summary>An elite, mini-boss or MVP kill's chance; 0 turns crystal drops off altogether.</summary>
     public double Chance { get; set; }
     public int Item { get; set; } = 3;
-    public int Min { get; set; } = 1;
-    public int Max { get; set; } = 3;
-    public int MvpMin { get; set; } = 10;
-    public int MvpMax { get; set; } = 20;
+    public int Min { get; set; } = 3;
+    public int Max { get; set; } = 8;
+    public int MvpMin { get; set; } = 20;
+    public int MvpMax { get; set; } = 40;
+    /// <summary>
+    /// An ordinary monster's (enum_MonsterType MT_Normal) chance of one crystal, while <see cref="Chance"/> is on: as
+    /// rare as Arcane Ore, the rarest ore ordinary monsters drop (NPCDropConfig pools: 0.76% a kill, the median over
+    /// the 203 that drop it). 0 = bosses only.
+    /// </summary>
+    public double NormalChance { get; set; } = 0.0076;
 }
 
 /// <summary>

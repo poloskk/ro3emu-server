@@ -54,13 +54,19 @@ public sealed class RewardService
 
     private readonly double _expRate;
 
-    /// <summary>enum_MonsterType (clientB Lua_GameDefine) in NPCConfig _iNPCSubType: MT_Elite, MT_MINI, MT_MVP.</summary>
-    private const long EliteType = 2, MiniType = 3, MvpType = 4;
+    /// <summary>enum_MonsterType (clientB Lua_GameDefine) in NPCConfig _iNPCSubType: MT_Normal, MT_Elite, MT_MINI, MT_MVP.</summary>
+    private const long NormalType = 1, EliteType = 2, MiniType = 3, MvpType = 4;
 
-    /// <summary>Ro3Emu:CrystalDrops (inferred, a realm policy): crystals from an elite, mini-boss or MVP kill.</summary>
+    /// <summary>Ro3Emu:CrystalDrops (inferred, a realm policy): crystals from an elite, mini-boss or MVP kill, and
+    /// now and then one from an ordinary kill.</summary>
     private IEnumerable<(int Entry, int Count)> CrystalDrop(CrystalDropOptions crystals, MonsterUnit monster)
     {
         long type = Data.Config.NPCConfig.Get(_data, monster.Template.NpcId)?.NPCSubType ?? 0;
+        if (type == NormalType)
+        {
+            if (_random.NextDouble() < crystals.NormalChance) yield return (crystals.Item, 1);
+            yield break;
+        }
         if (type is not (EliteType or MiniType or MvpType) || _random.NextDouble() >= crystals.Chance) yield break;
         var (min, max) = type == MvpType ? (crystals.MvpMin, crystals.MvpMax) : (crystals.Min, crystals.Max);
         if (max >= min && max > 0) yield return (crystals.Item, _random.Next(Math.Max(1, min), max + 1));
