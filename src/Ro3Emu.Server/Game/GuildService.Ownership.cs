@@ -12,7 +12,8 @@ public sealed partial class GuildService
     // Membership/name admission is serial within this family; guild resources still overlap the
     // exact guild key used by the already-converted market. Unrelated role work remains independent.
     private async Task RunGuildAsync(GameSession? actor, IEnumerable<long> guildIds,
-        IEnumerable<long> roleIds, Func<Task> command, bool maintenance = false, bool disband = false, bool characterGate = false)
+        IEnumerable<long> roleIds, Func<Task> command, bool maintenance = false, bool disband = false, bool characterGate = false,
+        MemberAccess member = MemberAccess.None)
     {
         var owners = ownerRegistry;
         long[] requestedGuilds = guildIds.Where(id => id > 0).Distinct().ToArray();
@@ -21,7 +22,8 @@ public sealed partial class GuildService
         var role = actor?.Role;
         while (true)
         {
-            ReservationKey[] Keys() => GuildKeys(actor, role?.Id, requestedGuilds, requestedRoles, maintenance, disband);
+            ReservationKey[] Keys() => member != MemberAccess.None ? MemberKeys(actor, member)
+                : GuildKeys(actor, role?.Id, requestedGuilds, requestedRoles, maintenance, disband);
             var keys = Keys();
             // A rename waiting at the character gate must not reserve a guild that a leave or
             // disband can still change. Admit both together, then restage all participants.
@@ -68,6 +70,24 @@ public sealed partial class GuildService
         }
     }
 
+    /// <summary>How an operation touches only the actor's own membership (<see cref="MemberKeys"/>).</summary>
+    private enum MemberAccess { None, Read, Write }
+
+    /// <summary>
+    /// (inferred admission) A member's own row (its online state) or a read of its guild id: the guild, shared for a
+    /// read, and the member's role; not the realm-wide catalog nor every member's role. Each login and scene change
+    /// ran with all of those, and with thousands of guild members a login waited for a moment when the catalog and
+    /// all of a guild's busy roles were free at once: logins took minutes.
+    /// </summary>
+    private ReservationKey[] MemberKeys(GameSession? actor, MemberAccess access)
+    {
+        if (actor?.Role is not { } role) return [];
+        long guild = store.ForRole(role.Id)?.Id ?? 0;
+        ReservationKey[] own = [ReservationKey.Role(role.Id)];
+        if (guild == 0) return own;
+        return [access == MemberAccess.Read ? ReservationKey.SharedEntity("guild", guild.ToString()) : ReservationKey.Entity("guild", guild.ToString()), .. own];
+    }
+
     private ReservationKey[] GuildKeys(GameSession? actor, long? roleId, long[] requestedGuilds, long[] requestedRoles,
         bool maintenance, bool disband)
     {
@@ -83,8 +103,12 @@ public sealed partial class GuildService
     }
 
     /// <summary>The keys of the actor's own ordinary guild operation (own guild, its members, the catalog and the
-    /// actor's role): what <see cref="OnlineChangedAsync"/> and <see cref="SceneGuildIdAsync"/> admit.</summary>
+    /// actor's role).</summary>
     internal ReservationKey[] OwnGuildKeys(GameSession s) => GuildKeys(s, s.Role?.Id, [], [], false, false);
+
+    /// <summary>The keys of the member's own online state (<see cref="MemberKeys"/>): what the scene publication and the
+    /// leave hold for <see cref="OnlineChangedAsync"/> and <see cref="SceneGuildIdAsync"/>.</summary>
+    internal ReservationKey[] OwnMemberKeys(GameSession s) => MemberKeys(s, MemberAccess.Write);
 
     public Task CreateAsync(GameSession s, GuildCreateReq req) => RunGuildAsync(s, [], [], () => CreateCoreAsync(s, req), characterGate: true);
     public Task ApplyAsync(GameSession s, GuildEnterApplyReq req) => RunGuildAsync(s, req.GuildIds, [], () => ApplyCoreAsync(s, req), true);
@@ -106,12 +130,13 @@ public sealed partial class GuildService
     // reservation covers; elsewhere it admits its own guild scope.
     public Task LoginAsync(GameSession s) => ownerRegistry.Current is { RuntimeOnly: false }
         ? LoginCoreAsync(s) : RunGuildAsync(s, [], [], () => LoginCoreAsync(s));
-    public Task OnlineChangedAsync(GameSession s, bool online) => RunGuildAsync(s, [], [], () => OnlineChangedCoreAsync(s, online));
+    public Task OnlineChangedAsync(GameSession s, bool online) =>
+        RunGuildAsync(s, [], [], () => OnlineChangedCoreAsync(s, online), member: MemberAccess.Write);
     public Task ReconcileAsync() => RunGuildAsync(null, [], [], ReconcileCoreAsync, true);
     public Task RecommendAsync(GameSession s, GuildRecommendListReq req) => RunGuildAsync(s, [], [], () => RecommendCoreAsync(s, req));
     public Task HelperListAsync(GameSession s, GuildCreateHelperListReq req) => RunGuildAsync(s, [], [], () => HelperListCoreAsync(s, req));
     public Task DetailAsync(GameSession s, GuildDetailInfoReq req) => RunGuildAsync(s, [req.GuildId], [], () => DetailCoreAsync(s, req));
-    public Task SceneGuildIdAsync(GameSession s) => RunGuildAsync(s, [], [], () => SceneGuildIdCoreAsync(s));
+    public Task SceneGuildIdAsync(GameSession s) => RunGuildAsync(s, [], [], () => SceneGuildIdCoreAsync(s), member: MemberAccess.Read);
     public Task SyncOnceAsync(GameSession s, SyncGuildDataOnceReq req) => RunGuildAsync(s, [], [], () => SyncOnceCoreAsync(s, req));
     public Task MemberIdsAsync(GameSession s, GuildMemberIDListReq req) => RunGuildAsync(s, [], [], () => MemberIdsCoreAsync(s, req));
     public Task LeagueMgrDataAsync(GameSession s, uint id) => RunGuildAsync(s, [], [], () => LeagueMgrDataCoreAsync(s, id));
@@ -166,6 +191,14 @@ public sealed partial class GuildService
         if (economy != null) transaction.WithEconomy(economy);
         try { await roles.CommitAsync(transaction, "guild/ordinary-save"); return true; }
         catch (Microsoft.Data.Sqlite.SqliteException e) when (e.SqliteExtendedErrorCode is 1555 or 2067) { return false; }
+    }
+
+    /// <summary>The guild row alone: a member's own state changed (online, level), no member's role view did.</summary>
+    private async Task SaveGuildRowAsync(GuildStore.State guild)
+    {
+        var transaction = roles.NewTransaction();
+        store.EnlistSave(guild, transaction);
+        await roles.CommitAsync(transaction, "guild/member-row");
     }
 
     private async Task SavePersonalAsync(GameSession session, DBRoleGuildInfo view)

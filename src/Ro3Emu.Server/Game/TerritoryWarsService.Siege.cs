@@ -241,6 +241,7 @@ public sealed partial class TerritoryWarsService
                     var closingWindow = SiegeWindow();
                     _siegeTestClosedUntil = closingWindow?.Contains(_clock.Now) == true ? closingWindow.End : _clock.Now + 1;
                     _siegeTestOpen = false;
+                    FlushSiegeTallies();
                     foreach (var key in state.SiegeRuns.Where(x => !x.Value.Settled).Select(x => x.Key).ToArray())
                         await SiegeSettleAsync(key, state.SiegeRuns[key].Defense);
                     break;

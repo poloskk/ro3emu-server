@@ -35,6 +35,7 @@
     <ProjectReference Include="..\..\src\Ro3Emu.Server\Ro3Emu.Server.csproj" />
     <ProjectReference Include="..\..\src\Ro3Emu.Bot\Ro3Emu.Bot.csproj" />
     <ProjectReference Include="..\..\src\Ro3Emu.LoadTest\Ro3Emu.LoadTest.csproj" />
+    <ProjectReference Include="..\..\src\Ro3Emu.Population\Ro3Emu.Population.csproj" />
     <ProjectReference Include="..\..\tools\EconomyProbe\EconomyProbe.csproj" />
   </ItemGroup>
 

@@ -240,6 +240,23 @@ public sealed class FamilyEconomyTransactionTests : IDisposable
         Assert.NotNull(EconomyReceiptReader.Read(_accounts.DatabasePath, unresolved));
     }
 
+    /// <summary>A write the writer refuses at admission (its queue full; here one larger than the queue) never reached
+    /// the database: it fails as refused, not as an unknown outcome that quarantines the owners (no receipt read, which
+    /// the full readers would refuse), and the next one commits.</summary>
+    [Fact]
+    public async Task RefusedAdmissionIsNotAnUnknownOutcome()
+    {
+        string refused = Guid.NewGuid().ToString("N");
+        var tx = Family(refused);
+        tx.RoleBlob(_role, "pets", new byte[DbWriter.MaxDurableBytes + 1]);
+        _accounts.FailNextEconomyResolutionForTest(); // the readers are full too: a receipt read would fail
+        await Assert.ThrowsAsync<DbQueueFullException>(() => _roles.CommitAsync(tx, "test/family-refused"));
+        Assert.Null(EconomyReceiptReader.Read(_accounts.DatabasePath, refused));
+        string next = Guid.NewGuid().ToString("N");
+        await _roles.CommitAsync(Family(next), "test/family-after-refusal");
+        Assert.NotNull(EconomyReceiptReader.Read(_accounts.DatabasePath, next));
+    }
+
     [Fact]
     public void SynchronousFamilyLostAcknowledgementResolvesCompleteChildReceipt()
     {

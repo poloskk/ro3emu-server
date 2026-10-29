@@ -1,7 +1,8 @@
 RO3Emu - play Ragnarok Online 3 (PC) on your own server
 =======================================================
 
-Nothing to install. Extract the whole zip, then double-click RO3Emu.exe.
+Nothing to install. Extract the whole zip, then double-click RO3EmuPlay.exe (the
+launcher window) or RO3Emu.exe (the same in a console window).
 If Windows says "Windows protected your PC" (RO3Emu is not signed), click
 "More info", then "Run anyway".
 
@@ -14,7 +15,8 @@ The first time it:
   4. patches the game to talk to it and starts the game.
 
 Log in with any account name and password: the account is created on first login.
-Keep the RO3Emu window open while you play; press Q there (or close it) to stop the server.
+Keep the RO3Emu window open while you play; Stop server (or Q in the console, or
+closing the window) stops the server and saves your characters.
 Next time, just double-click RO3Emu.exe again.
 
 Other things it can do (open a command prompt in this folder):

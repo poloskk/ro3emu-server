@@ -221,6 +221,9 @@ public sealed partial class AccountStore : IDisposable
         object?[] result;
         try { result = await Writer.ExecuteAsync<object?[]>(plan); }
         catch (EconomyOperationConflictException) { throw; }
+        // Refused at admission: the plan never reached the writer, so nothing is ambiguous (and with the queues full,
+        // a receipt read would be refused too and quarantine the owners for nothing).
+        catch (DbQueueFullException) { throw; }
         catch (Exception original)
         {
             object?[]? resolved;
@@ -265,6 +268,9 @@ public sealed partial class AccountStore : IDisposable
         object?[] result;
         try { result = await Writer.ExecuteAsync<object?[]>(plan); }
         catch (EconomyOperationConflictException) { throw; }
+        // Refused at admission: the plan never reached the writer, so nothing is ambiguous (and with the queues full,
+        // a receipt read would be refused too and quarantine the owners for nothing).
+        catch (DbQueueFullException) { throw; }
         catch (Exception original)
         {
             object?[]? resolved;

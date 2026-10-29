@@ -157,7 +157,7 @@ public sealed class FirstHeartService : IGameTicker
         var bytes = _roles.LoadFirstHeart(s.Role!.Id);
         var saved = bytes is { Length: > 0 } ? DBFirstHeartTaskActivityData.Parser.ParseFrom(bytes) : new DBFirstHeartTaskActivityData();
         var next = Evaluate(s, saved.Clone());
-        if (!next.Equals(saved)) _roles.SaveFirstHeart(s.Role.Id, next.ToByteArray());
+        if (!next.Equals(saved)) await _roles.SaveFirstHeartAsync(s.Role.Id, next.ToByteArray());
         s.FirstHeart = next;
         await SyncAsync(s);
     }

@@ -420,13 +420,21 @@ public sealed class GuildCaravanService(GameData data, GuildStore guilds, Accoun
         catch { _sweeping = false; throw; }
     }
     private bool _sweeping;
+    private const int SweepReadsPerYield = 50, SweepRolloversPerRest = 10;
+    private static readonly TimeSpan SweepRest = TimeSpan.FromMilliseconds(100);
 
     /// <summary>Settle yesterday's connected and offline orders at 05:00, once per persisted role.</summary>
     public async Task ReconcileAllAsync()
     {
         var roleIds = _accounts.ReadSync<List<long>>(new CaravanRoleIdsReadPlan());
+        int read = 0, sinceRest = 0;
         foreach (long roleId in roleIds)
         {
+            // (inferred pacing) At 05:00 every persisted role rolls over in one sweep: back to back they held the loop
+            // for most of a minute (37% of its time, the 1500-bot realm lagging). The sweep lets queued work through
+            // between roles and rests between batches of rollovers, outside any guild gate.
+            if (++read % SweepReadsPerYield == 0) await Task.Yield();
+            if (sinceRest == SweepRolloversPerRest) { sinceRest = 0; await Task.Delay(SweepRest); }
             var snapshot = Read(roleId);
             if (snapshot == null || snapshot.Day == Day) continue;
             try
@@ -436,6 +444,7 @@ public sealed class GuildCaravanService(GameData data, GuildStore guilds, Accoun
                 var current = Read(roleId);
                 if (current == null || current.Day == Day || current.GuildId != snapshot.GuildId) continue;
                 await RolloverAsync(roleId, current, _roles.LoadProgress(roleId));
+                sinceRest++;
                 if (_sessions.All().FirstOrDefault(x => x.Role?.Id == roleId) is { } online && Guild(online) is { } guild)
                 {
                     var today = await EnsureAsync(online, guild);

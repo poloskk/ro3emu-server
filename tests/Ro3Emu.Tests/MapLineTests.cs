@@ -186,7 +186,7 @@ public sealed class MapLineTests : IAsyncLifetime
         var old = a.Handoff!;
         await OnLoop(() =>
         {
-            _clock.Offset = TimeSpan.FromSeconds(31);
+            _clock.Offset = SceneService.LoadDeadline + TimeSpan.FromSeconds(1);
             Service<SceneService>().ExpireLineLoad(a);
             Assert.True(a.SceneRecoveryRequired);
             Assert.Null(Service<PublicLineManager>().Reserved(a));

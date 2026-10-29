@@ -7,5 +7,7 @@ namespace Ro3Emu.Server.Data.Config;
 public readonly partial record struct StrengthenTable(JsonElement Row)
 {
     [ConfigField("_iEquipType")] public partial long EquipType { get; }
+    [ConfigField("_iLev")] public partial long Lev { get; }
     [ConfigField("_iStrengthenInterval")] public partial long StrengthenInterval { get; }
+    [ConfigField("_kDeplete")] public partial long[][] Deplete { get; }
 }

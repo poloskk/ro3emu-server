@@ -61,7 +61,11 @@ public sealed partial class SceneService
         lines.Release(s);
     }
 
-    /// <summary>(inferred) Bounded 30-second load timeout; reconnect chooses a new valid line.
+    /// <summary>(inferred) How long a client may take to load a map before it must reconnect. A first load on a
+    /// cold install next to a busy server took over 30 s, so the bound is generous.</summary>
+    public static readonly TimeSpan LoadDeadline = TimeSpan.FromSeconds(120);
+
+    /// <summary>(inferred) Bounded load timeout (<see cref="LoadDeadline"/>); reconnect chooses a new valid line.
     /// Never reuse a cancelled same-config handshake: 30005 cannot identify its old line.</summary>
     public void ExpireLineLoad(GameSession s)
     {

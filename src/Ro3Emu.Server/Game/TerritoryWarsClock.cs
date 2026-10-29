@@ -18,6 +18,7 @@ public sealed class TerritoryWarsClock(GameData data, SeasonService seasons, Tim
     private IReadOnlyList<Stage>? _exported;
     private IReadOnlyList<Stage>? _stages;
     private long _builtCycle = -1;
+    private long? _span;
 
     /// <summary>
     /// The block of battles in force: the exported dates, or under OpenContent the repeat that is running or comes next
@@ -46,7 +47,8 @@ public sealed class TerritoryWarsClock(GameData data, SeasonService seasons, Tim
             long period = seasons.OpenContent.TerritoryWarPeriod;
             var block = _exported ??= Build();
             if (period <= 0 || block.Count == 0) return 0;
-            long first = block[0].StartTime, span = block.Max(s => s.EndTime) - first, now = Now;
+            // The block's span is fixed: it was recomputed for every session each time territory keys were built.
+            long first = block[0].StartTime, span = _span ??= block.Max(s => s.EndTime) - first, now = Now;
             if (now < first + span) return 0;
             long cycle = (now - first) / period;
             return now < first + cycle * period + span ? cycle : cycle + 1;

@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Options;
 using Romsg;
 using Ro3Emu.Server.Data;
+using Ro3Emu.Server.Data.Config;
 using Ro3Emu.Server.Maps;
 
 namespace Ro3Emu.Server.Game;
@@ -56,7 +57,19 @@ public sealed class GmCommands(IOptions<ServerOptions> options, GameData data, S
     {
         if (!line.StartsWith('!')) return false;
         var parts = line[1..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        return parts.Length > 0 && (parts[0].Equals("siege", StringComparison.OrdinalIgnoreCase) ||
+        // !kit grants to the caller alone through the loot path (CharacterService.GrantAsync admits the role's own
+        // keys), so it needs no realm scope: the fake players' gear and materials must not stop the realm.
+        // !quest done delivers the caller's own quest (TaskService asserts only the role's owner), as the fake players
+        // open their appraisal and talent panels: 1500 of them holding the realm in turn froze it for hours.
+        // !lvl sets the caller's own level (CharacterService.SetLevelAsync: its StateLock and commit, the work AddExpAsync
+        // does for a kill outside the realm scope): the fake players' level-ups held the realm 235 times a quarter hour.
+        return parts.Length > 0 && (parts[0].Equals("kit", StringComparison.OrdinalIgnoreCase) ||
+            parts[0].Equals("lvl", StringComparison.OrdinalIgnoreCase) ||
+            // !hp sets the caller's own HP/SP and tells its viewers (CharacterService.SetHpSpAsync), as a hit does.
+            parts[0].Equals("hp", StringComparison.OrdinalIgnoreCase) ||
+            parts[0].Equals("quest", StringComparison.OrdinalIgnoreCase) && parts.Length > 1
+                && parts[1].Equals("done", StringComparison.OrdinalIgnoreCase) ||
+            parts[0].Equals("siege", StringComparison.OrdinalIgnoreCase) ||
             parts[0].Equals("twpoint", StringComparison.OrdinalIgnoreCase) ||
             parts[0].Equals("mvp", StringComparison.OrdinalIgnoreCase) &&
             (parts.Length < 2 || !parts[1].Equals("goto", StringComparison.OrdinalIgnoreCase)));
@@ -249,6 +262,7 @@ public sealed class GmCommands(IOptions<ServerOptions> options, GameData data, S
         ["jump"] = ("<x> <z>", Jump),
         ["finditem"] = ("<name>", FindItem),
         ["item"] = ("<id|name> [count]", Item),
+        ["kit"] = ("<id>:<count> ...", Kit),
         ["mail"] = ("<title> [item count]", Mail),
         ["delitem"] = ("<id> [count]", (s, a) => Op(s, OpRemoveItem, a)),
         ["zeny"] = ("<amount>", Zeny),
@@ -369,6 +383,28 @@ public sealed class GmCommands(IOptions<ServerOptions> options, GameData data, S
         var hit = data.FindItems(name).FirstOrDefault();
         if (hit.Id == 0) return ReplyAsync(s, $"No item called '{name}'.");
         return Op(s, OpAddItem, [hit.Id.ToString(CultureInfo.InvariantCulture), counted ? args[^1] : "1"]);
+    }
+
+    /// <summary>
+    /// "!kit 2020660:1 1200200:40 2:200000": several items at once as one loot grant (a test aid for the fake players'
+    /// gear, inferred). The reply lists the bag's unworn pieces of each equipment entry asked for ("kit 2020660=guid,guid
+    /// ..."), which a protocol bot equips with 31400.
+    /// </summary>
+    private async Task Kit(GameSession s, string[] args)
+    {
+        var items = new List<(int Entry, int Count)>();
+        foreach (var arg in args)
+        {
+            var pair = arg.Split(':');
+            int entry = I(pair[0]), count = pair.Length > 1 ? I(pair[1]) : 1;
+            if (count <= 0 || data.Row("ItemConfig", entry) == null) throw new ArgumentException($"no item {arg}");
+            items.Add((entry, count));
+        }
+        if (items.Count == 0) throw new ArgumentException("items");
+        await character.GrantAsync(s, items);
+        var gear = items.Select(i => i.Entry).Distinct().Where(e => ItemConfig.Get(data, e)?.Type == CharacterService.ItemTypeEquip)
+            .Select(e => $"{e}={string.Join(',', s.Items.Where(x => x.Entry == e && x.Grid == 0).Select(x => x.Guid))}");
+        await ReplyAsync(s, "kit " + string.Join(' ', gear));
     }
 
     /// <summary>Local GM system-mail smoke path; trailing numeric pair is an optional plain attachment.</summary>

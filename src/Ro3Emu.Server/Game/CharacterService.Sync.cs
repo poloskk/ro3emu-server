@@ -192,6 +192,8 @@ public sealed partial class CharacterService
         if (session.Progress == null) throw new InvalidOperationException("not in game");
         Ownership.LegacyOwnerScope? scope = null;
         long? roleId = session.Role?.Id;
+        // A role that logged out while its work queued (a kill's reward after a mass disconnect) is a role change too.
+        if (roleId == null) throw new OperationCanceledException("Role changed before the character gate was acquired.");
         var attachment = session.Attachment;
         bool acquired = false;
         try

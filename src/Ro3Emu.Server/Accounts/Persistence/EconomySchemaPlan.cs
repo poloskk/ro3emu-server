@@ -158,6 +158,9 @@ internal sealed class EconomySchemaPlan : DbPlan
                 using var broken = foreignKeys.ExecuteReader();
                 if (broken.Read()) throw new InvalidDataException("Receipt constraint migration left a broken foreign key.");
             }
+        // The natural-source checks look a key up by source_key alone (a database holds one realm), which the
+        // (realm_id,source_key) key cannot serve: at 240k sources each economic commit scanned for ~76 ms on the writer.
+        SchemaSql.Execute(db, tx, "CREATE INDEX IF NOT EXISTS operation_source_key ON operation_source(source_key);");
         using var seed = DbSql.Command(db, tx,
             "INSERT OR IGNORE INTO economy_meta(singleton,realm_id,next_sequence,retained_floor) VALUES(1,$realm,0,0)");
         seed.Parameters.AddWithValue("$realm", Guid.NewGuid().ToString("N"));

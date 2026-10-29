@@ -90,6 +90,9 @@ public sealed partial class TerritoryWarsService : IGameTicker
             if (Interlocked.Exchange(ref _disposed, 1) == 0) release();
         }
     }
+    /// <summary>(inferred) How long after its settlement a battle's or siege's players stay in the mutation keys.</summary>
+    private const long RecentSettlementSeconds = 300;
+
     private Ownership.ReservationKey[] MutationKeys(GameSession? actor, IReadOnlyCollection<long>? additionalGuilds = null,
         bool includeParticipants = false)
     {
@@ -109,8 +112,14 @@ public sealed partial class TerritoryWarsService : IGameTicker
                  || _seasonCleanupState != null && (s.TerritoryBattle?.Epoch == _seasonCleanupState.Epoch
                      || s.SiegeBattle?.Epoch == _seasonCleanupState.Epoch))))
                 keys.Add(Ownership.ReservationKey.Role(session.Role!.Id));
-            foreach (var player in state.Battles.Values.SelectMany(b => b.Players.Keys)
-                .Concat(state.SiegeRuns.Values.SelectMany(b => b.Players.Keys))
+            // (inferred admission) Only battles and sieges still running or just settled (the result panel and the
+            // room's exit grace) can change their players. Every run ever held used to be included: a weekly siege of
+            // hundreds made the reconciliation wait for hundreds of roles to be free at once, and with it every login,
+            // whose shared season key queues behind that waiting writer.
+            foreach (var player in state.Battles.Values.Where(b => !b.Settled || _clock.Now < b.End + RecentSettlementSeconds)
+                .SelectMany(b => b.Players.Keys)
+                .Concat(state.SiegeRuns.Values.Where(r => !r.Settled || _clock.Now < r.SettledAt + RecentSettlementSeconds)
+                    .SelectMany(b => b.Players.Keys))
                 .Concat(_seasonCleanupState?.Battles.Values.SelectMany(b => b.Players.Keys) ?? [])
                 .Concat(_seasonCleanupState?.SiegeRuns.Values.SelectMany(b => b.Players.Keys) ?? [])
                 .Concat(_seasonRoleProjectionPending.Where(id => !RoleRequiresRecovery(id))))

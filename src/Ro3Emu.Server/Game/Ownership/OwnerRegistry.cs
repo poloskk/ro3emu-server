@@ -289,7 +289,7 @@ public sealed class OwnerRegistry
                     Deferred++; deferred = true; DeferredForTest?.Invoke(origin);
                     blockedBy = BlockerLabel(keys);
                 }
-                await Reservations.Changed.WaitAsync(cancellation);
+                await Reservations.ChangedFor(keys).WaitAsync(cancellation);
                 cancellation.ThrowIfCancellationRequested();
                 if (request?.RuntimeOnly == true) request.AssertRequest();
             }
@@ -378,7 +378,7 @@ public sealed class OwnerRegistry
                 if (TryEnter(origin, keys, retry) is { } scope) return scope;
             }
             catch { gate.Release(); throw; }
-            var changed = Reservations.Changed;
+            var changed = Reservations.ChangedFor(keys);
             gate.Release();
             await changed.WaitAsync(cancellation);
         }

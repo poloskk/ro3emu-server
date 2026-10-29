@@ -39,7 +39,7 @@ public sealed partial class CharacterService(RoleStore roles, ItemStore itemStor
     private const int StatPlan = 0;
 
     private const int ItemTypeCurrency = 1;
-    private const int ItemTypeEquip = 5;
+    internal const int ItemTypeEquip = 5;
     private const int ZenyId = 1;
     private const int BaseExpItem = 100;
     private const int JobExpItem = 101;

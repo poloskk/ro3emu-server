@@ -190,6 +190,10 @@ Reconstructed scripted scenes (`Reconstructed/scripted-scenes.json`, same switch
   actors the server shows (client NPCConfig ids at scene-editor points, entity type 1 or 2 from `_iNPCType`, with the
   buffs that open their interactions), an optional story, the client events that complete it and an optional teleport
   after it. The engine is generic (`DungeonService.Scripted`): nothing knows a scene, task or NPC id.
+- A step's teleport is watched for 60 s: a walk report from within 10 m of where the participant was sends it again
+  (up to five times), as the live client stayed at the vortex of 1000201 when the teleport landed during its 'Jump into
+  the Cave' cast **(inferred)**. A report from anywhere else ends the watch, so a walk on from the landing is never
+  pulled back.
 - Client events: 32700 on a scene actor (its own UID namespace) with one of the actor's `_iInteractID`, also counted as
   the dungeon message of that interaction's server-hosted action 210 `SendDungeonMessage` (the client never runs it);
   a walk into a server region (regionType 2; no client consumer registers them, so the client never reports them;

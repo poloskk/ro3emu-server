@@ -70,6 +70,23 @@ internal sealed class Settings
 {
     public string? ClientDir { get; set; }
 
+    /// <summary>Fake players started with the server (--bots, docs/guide/population.md); 0 = none.</summary>
+    public int Bots { get; set; }
+
+    /// <summary>Monster kill EXP as a multiple of the original's (the server's Ro3Emu:ExpRate); 1 = the original rate.</summary>
+    public double ExpRate { get; set; } = 1;
+
+    /// <summary>Field Bonus Time drained per second of play (the server's Ro3Emu:BonusTimeDrain); 1 = the original,
+    /// 0.25 lasts four times as long, 0 = unlimited.</summary>
+    public double BonusTimeDrain { get; set; }
+
+    /// <summary>The chance an elite, mini-boss or MVP kill drops Sacred Relic Crystals (Ro3Emu:CrystalDrops:Chance); 0 = never.</summary>
+    public double CrystalDropChance { get; set; } = 1;
+
+    /// <summary>Red gear in fake players' stalls for Sacred Relic Crystals: one crystal per this much Zeny of its base
+    /// price (Ro3Emu:CrystalGear:Rate; a level 90 red armour ~240 crystals at 5000); 0 = not sold.</summary>
+    public long CrystalGearRate { get; set; } = 5000;
+
     /// <summary>The highest publisher release installed into each folder: an older signed manifest is refused (no downgrade).</summary>
     public Dictionary<string, long> InstalledSequence { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 

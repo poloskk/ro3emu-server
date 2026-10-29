@@ -931,6 +931,7 @@ public sealed partial class CombatService : IGameTicker
                 else if (s.SkillCast == null && EffectiveSkillRow(s, a.SkillId) is { } row && MonsterService.Distance(a.Target, s) <= Range(row) + 1.5f)
                 {
                     a.NextSwingMs = now + SkillMs(s, row);
+                    if (new SkillConfig(row).IsNormalAtk == 1) s.NormalAttackReadyMs = a.NextSwingMs; // no click hits between swings
                     _loop.TrackRuntimeDetached("combat swing", () => SwingAsync(s, a.Target, a.SkillId, ++_sessionIds));
                 }
             }

@@ -37,7 +37,7 @@ if ($ClientDir) {
 }
 
 Write-Host '== Building' -ForegroundColor Cyan
-foreach ($project in 'src/Ro3Emu.Server', 'src/Ro3Emu.ClientHooks', 'src/Ro3Emu.Loc', 'src/Ro3Emu.Setup') {
+foreach ($project in 'src/Ro3Emu.Server', 'src/Ro3Emu.Population', 'src/Ro3Emu.ClientHooks', 'src/Ro3Emu.Loc', 'src/Ro3Emu.Setup') {
     $extra = if ($project -in 'src/Ro3Emu.ClientHooks', 'src/Ro3Emu.Loc') { $clientBuild } else { @() }
     Run dotnet (@('build', (Join-Path $root $project), '-c', 'Release', '-v', 'q', '-nologo', '-clp:ErrorsOnly') + $extra)
 }

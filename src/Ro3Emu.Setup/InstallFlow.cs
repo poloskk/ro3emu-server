@@ -184,6 +184,7 @@ internal sealed class OptionsWithClient(Options options, string client)
         var args = new List<string> { "start", "--client", client };
         if (o.Reexport) args.Add("--reexport");
         if (o.NoLaunch) args.Add("--no-launch");
+        if (o.Bots is { } bots) args.AddRange(["--bots", bots.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
         if (o.Yes) args.Add("--yes");
         if (o.Home != null) args.AddRange(["--home", o.Home]);
         args.AddRange(["--http-port", o.Ports.Http.ToString(), "--micro-port", o.Ports.MicroGate.ToString(), "--game-port", o.Ports.GameGate.ToString()]);

@@ -40,6 +40,8 @@ public sealed class WildAfkService : IGameTicker
         public long DailyEpoch { get; set; }
         public long ConsumedTodaySeconds { get; set; }
         public long RemainderMs { get; set; }
+        /// <summary>Play milliseconds not yet counted as a whole second, when the bank drains slower (Ro3Emu:BonusTimeDrain).</summary>
+        public long PlayRemainderMs { get; set; }
         public long LastToggleMs { get; set; }
         public Dictionary<int, long> TotalDrops { get; set; } = new();
         [JsonIgnore] public DBWildAFKInfo Info { get; set; } = new();
@@ -55,8 +57,10 @@ public sealed class WildAfkService : IGameTicker
     }
 
     public WildAfkService(GameData data, RoleStore roles, FunctionService functions, TaskService tasks, DailyActivityService daily,
-        SessionRegistry sessions, World world, GameLoop loop, SceneService scene, CombatService combat, RewardService rewards)
+        SessionRegistry sessions, World world, GameLoop loop, SceneService scene, CombatService combat, RewardService rewards,
+        Microsoft.Extensions.Options.IOptions<ServerOptions>? options = null)
     {
+        _drain = Math.Clamp(options?.Value.BonusTimeDrain ?? 1, 0, 1);
         this._data = data;
         this._roles = roles;
         this._functions = functions;
@@ -156,7 +160,16 @@ public sealed class WildAfkService : IGameTicker
     {
         var state = s.WildAfk!;
         var bytes = state.Info.ToByteArray();
-        if (state.SyncedInfo is { } last && last.AsSpan().SequenceEqual(bytes)) return; // the diff would be empty
+        // The client counts the bank down by itself while Bonus Time runs, and a diff never repeats an unchanged
+        // value: with Ro3Emu:BonusTimeDrain 0 the full bank is said again with every sync, or the panel ran down.
+        bool unlimited = _drain == 0 && state.Info.IsHighMagnification && !state.Info.IsSuspended;
+        if (!unlimited && state.SyncedInfo is { } last && last.AsSpan().SequenceEqual(bytes)) return; // the diff would be empty
+        if (unlimited && s.Synced.GetValueOrDefault(Sync) is DBWildAFKInfo sent)
+        {
+            var stale = sent.Clone();
+            stale.HighMultiplierTimeSeconds = -1;
+            s.Synced[Sync] = stale;
+        }
         await CharacterService.SyncAsync(s, Sync, state.Info.Clone());
         state.SyncedInfo = bytes;
     }
@@ -199,6 +212,8 @@ public sealed class WildAfkService : IGameTicker
         var state = s.WildAfk!;
         var info = state.Info;
         long consumed = 0;
+        // Ro3Emu:BonusTimeDrain 0: an unlimited bank, full from the first reconciliation on.
+        if (_drain == 0) info.HighMultiplierTimeSeconds = Math.Max(info.HighMultiplierTimeSeconds, CapSeconds);
         bool running = info.IsHighMagnification && !info.IsSuspended;
         // Settle the old day's eligible interval before adding the new allowance, even if the loop crossed 05:00.
         bool reset = Epoch(now) > state.DailyEpoch;
@@ -289,18 +304,38 @@ public sealed class WildAfkService : IGameTicker
         && quests.CompleteTaskNum.GetValueOrDefault(500130) == 0
         && rows?.ActivityData.TryGetValue(106, out var row) == true && row.TaskCompleteTimes == 0;
 
+    /// <summary>Ro3Emu:BonusTimeDrain (inferred, a realm policy): the bank's seconds per second of play, 1 = the
+    /// original, 0 = unlimited (the bank stays at its cap).</summary>
+    private readonly double _drain;
+
     private long ConsumeUntil(State state, long end)
     {
         long until = Math.Min(end, state.LastKillAtMs + MonitorMs);
-        state.RemainderMs += Math.Max(0, until - state.AccountedAtMs);
-        long consumed = Math.Min(state.Info.HighMultiplierTimeSeconds, state.RemainderMs / 1000);
-        state.Info.HighMultiplierTimeSeconds -= consumed;
-        // Nothing beyond an exhausted allowance may carry into the next day's freshly restored bank.
-        state.RemainderMs = state.Info.HighMultiplierTimeSeconds > 0 ? state.RemainderMs % 1000 : 0;
-        state.Info.SumHighMultiplierTime += consumed;
-        state.ConsumedTodaySeconds += consumed;
+        long played = Math.Max(0, until - state.AccountedAtMs);
+        long consumed = 0;
+        if (_drain == 0) state.Info.HighMultiplierTimeSeconds = Math.Max(state.Info.HighMultiplierTimeSeconds, CapSeconds);
+        else if (state.Info.HighMultiplierTimeSeconds > 0)
+        {
+            // RemainderMs holds bank milliseconds: play time scaled by the drain rate.
+            state.RemainderMs += _drain == 1 ? played : (long)(played * _drain);
+            consumed = Math.Min(state.Info.HighMultiplierTimeSeconds, state.RemainderMs / 1000);
+            state.Info.HighMultiplierTimeSeconds -= consumed;
+            // Nothing beyond an exhausted allowance may carry into the next day's freshly restored bank.
+            state.RemainderMs = state.Info.HighMultiplierTimeSeconds > 0 ? state.RemainderMs % 1000 : 0;
+        }
+        // The lifetime and daily counts (the daily task: 60 minutes of Bonus Time) are play time, also when the bank
+        // drains slower or not at all.
+        long counted = consumed;
+        if (_drain != 1 && state.Info.HighMultiplierTimeSeconds + consumed > 0)
+        {
+            state.PlayRemainderMs += played;
+            counted = state.PlayRemainderMs / 1000;
+            state.PlayRemainderMs %= 1000;
+        }
+        state.Info.SumHighMultiplierTime += counted;
+        state.ConsumedTodaySeconds += counted;
         state.AccountedAtMs = Math.Max(state.AccountedAtMs, end);
-        return consumed;
+        return counted;
     }
 
     public Task ReconcileAsync(GameSession s) => ReconcileAsync(s, null);

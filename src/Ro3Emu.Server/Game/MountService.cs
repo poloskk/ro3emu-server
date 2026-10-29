@@ -235,9 +235,14 @@ public sealed class MountService : IGameTicker
         if (error == 0 && on) error = RidingError(s, selected!.MountId, slot);
         if (error == 0)
         {
-            var next = s.Mounts.Clone(); var state = CopyState(s); state.QuestMount = 0;
+            var next = s.Mounts.Clone();
             foreach (var (key, value) in next.MountIds) if (key == slot || on) value.IsRiding = key == slot && on;
-            await CommitAsync(s, next, state);
+            // Already so (riding that mount, or off): nothing to save or show (inferred: the reply alone).
+            if (!next.Equals(s.Mounts) || s.MountState.QuestMount != 0)
+            {
+                var state = CopyState(s); state.QuestMount = 0;
+                await CommitAsync(s, next, state);
+            }
         }
         await s.SendGameAsync(Ride, new PlayerRiderMountResp { Result = error, Tp = tp });
     }
@@ -327,8 +332,10 @@ public sealed class MountService : IGameTicker
         if (time.Now - _lastTick < TimeSpan.FromSeconds(1)) return;
         _lastTick = time.Now;
         // Combat/death can invalidate riding without a MountService event. Preserve that small gate for
-        // riders only; expiry itself is handled by the removable deadline above.
-        foreach (var s in _sessions.All().Where(s => s.Role != null && s.Mounts != null && Rider(s) != 0))
+        // riders only; expiry itself is handled by the removable deadline above. The reconciler's own no-work test runs
+        // first, on a copy and without its lock: posting every rider every second (hundreds of mounted fake players)
+        // queued a role scope and StateLock per rider per second against their combat.
+        foreach (var s in _sessions.All().Where(s => s.Role != null && s.Mounts != null && Rider(s) != 0 && Normalize(s, s.Mounts.Clone())))
         {
             var lease = _deadlines.Capture(s);
             _loop.PostOwned(s, () => ReconcileCoreAsync(s, lease));

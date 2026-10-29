@@ -72,7 +72,9 @@ public static partial class EconomySnapshotReader
     // casual_battle_obligation.payout is CasualBattleService.Payout: a frozen match result (rating delta, record,
     // numbers) and the DropPool ids its payment rolls. No goods: they are granted by the role's event/casual-battle
     // receipt that also writes the timed_battle state and marks the row delivered.
-    public const string ExpectedFormatManifestHash = "D5E7E8D429207929DD339BBB976CBDAEA16B4197AD5A969D76BFCE9CD3EC6E54";
+    // Bonus Time: role.wild_afk WildAfkService.State.PlayRemainderMs is the play time not yet counted as a whole second
+    // when Ro3Emu:BonusTimeDrain slows the bank; a clock fraction like RemainderMs, no balance and no asset.
+    public const string ExpectedFormatManifestHash = "F7BE9D6B609E5C793E28B21EEB4322C8617D2F108A245ADCCC0DD895BFAE3A39";
     public static string FormatManifestHash => State.FormatManifestHash;
 
     private sealed partial class State

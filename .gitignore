@@ -30,3 +30,7 @@ tools/unluac-batch/*.class
 
 # Temporary solution of tools/AnalyzerBaseline
 /.analyzer-baseline.slnx
+
+# The launcher window's art and icon, made from the player's own game (tools/release/launcher-art.ps1): client files.
+src/Ro3Emu.Play/ro3.ico
+src/Ro3Emu.Play/art/

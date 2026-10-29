@@ -32,6 +32,7 @@ internal static class Program
           --client <folder>  the game folder (the one with ro3.exe); remembered for next time
           --reexport         export the game data again
           --no-launch        do not start the game (server only)
+          --bots <n>         start and stop n fake players with the server; remembered for next time (0 = none)
           --yes              no questions: take the defaults
           --http-port <n> --micro-port <n> --game-port <n>   server ports (default 5380, 20000, 33100)
           --voice-port <n>   turn on party voice chat on this TCP port, for example 33101 (off by default)
@@ -76,7 +77,12 @@ internal static class Program
         if (options.Home != null) SetupHome.Root = options.Home;
         if (options.Yes) Ui.Interactive = false;
         SetupLog.Write($"RO3Emu {typeof(Program).Assembly.GetName().Version} {string.Join(' ', args)} (home {SetupHome.Root})");
+        return await RunAsync(options);
+    }
 
+    /// <summary>The command, with its failure report; the launcher window (Ro3Emu.Play) calls it with its own Ui.Host.</summary>
+    internal static async Task<int> RunAsync(Options options)
+    {
         try
         {
             return options.Command switch
@@ -141,6 +147,7 @@ internal sealed class Options
     public string? Home { get; private set; }
     public bool Reexport { get; private set; }
     public bool NoLaunch { get; private set; }
+    public int? Bots { get; private set; }
     public bool Yes { get; private set; }
     public string? PublicHost { get; private set; }
     public List<string> GmAccounts { get; } = [];
@@ -172,6 +179,7 @@ internal sealed class Options
                 case "--home": o.Home = Value("--home"); break;
                 case "--reexport": o.Reexport = true; break;
                 case "--no-launch": o.NoLaunch = true; break;
+                case "--bots": o.Bots = int.TryParse(Value("--bots"), out var b) && b is >= 0 and <= 10000 ? b : throw new SetupException("--bots needs a number from 0 to 10000.", "Run RO3Emu.exe help."); break;
                 case "--yes": case "-y": o.Yes = true; break;
                 case "--public": o.PublicHost = Value("--public"); break;
                 case "--gm": o.GmAccounts.Add(Value("--gm")); break;

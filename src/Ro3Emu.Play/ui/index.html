@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ragnarok 3 Offline Server by FroiCHoi</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="backdrop" id="backdrop"></div>
+<div class="shade"></div>
+
+<header class="topbar" id="drag">
+  <div class="brand">
+    <img class="logo" id="logo" src="art/logo.png" alt="" onerror="this.classList.add('missing')">
+    <div class="brand-text">
+      <span class="title" id="title-fallback">Ragnarök III</span>
+      <span class="subtitle">Offline Server by FroiCHoi</span>
+    </div>
+  </div>
+  <div class="tools">
+    <button class="tool" id="btn-settings" title="Settings"><svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg></button>
+    <button class="tool" id="btn-log" title="Server log"><svg viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5z"/><path d="M8 10h8M8 14h8M8 18h5"/></svg></button>
+    <span class="sep"></span>
+    <button class="tool" id="btn-min" title="Minimize"><svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg></button>
+    <button class="tool close" id="btn-close" title="Close"><svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7 7 17"/></svg></button>
+  </div>
+</header>
+
+<section class="panel realm">
+  <h2><span class="gem">◆</span>Realm</h2>
+  <div class="row">
+    <span class="label">Server</span>
+    <span class="value"><i class="dot" id="srv-dot"></i><span id="srv-text">Offline</span></span>
+  </div>
+  <div class="meter"><div id="srv-load"></div></div>
+  <div class="row small"><span class="label">Load</span><span class="value" id="srv-load-text">–</span></div>
+  <div class="row small"><span class="label">Uptime</span><span class="value" id="srv-uptime">–</span></div>
+  <hr>
+  <div class="row"><span class="label">Adventurers online</span><span class="value big" id="players">0</span></div>
+  <div class="row"><span class="label">Fake players</span><span class="value" id="bots-text">–</span></div>
+  <div class="meter blue"><div id="bots-bar"></div></div>
+  <hr>
+  <div class="rates">
+    <div><b id="rate-exp">×1</b><span>EXP</span></div>
+    <div><b id="rate-auto">∞</b><span>Auto timer</span></div>
+    <div><b id="rate-crystal">On</b><span>Crystals</span></div>
+  </div>
+</section>
+
+<section class="panel journey">
+  <ol class="steps" id="steps">
+    <li data-phase="client"><span class="hex">1</span><b>Game</b></li>
+    <li data-phase="data"><span class="hex">2</span><b>Data</b></li>
+    <li data-phase="server"><span class="hex">3</span><b>Server</b></li>
+    <li data-phase="patch"><span class="hex">4</span><b>Patch</b></li>
+    <li data-phase="bots"><span class="hex">5</span><b>Players</b></li>
+    <li data-phase="running"><span class="hex">6</span><b>Play</b></li>
+  </ol>
+  <div class="status">
+    <span class="status-text" id="status-text">Preparing…</span>
+    <span class="status-pct" id="status-pct"></span>
+  </div>
+  <div class="bar" id="bar"><div class="fill" id="bar-fill"></div></div>
+  <p class="detail" id="detail"></p>
+</section>
+
+<section class="actions">
+  <button class="play" id="btn-play" disabled><span id="play-label">Starting…</span><small id="play-sub"></small></button>
+  <button class="stop" id="btn-stop" disabled>Stop server</button>
+</section>
+
+<aside class="drawer" id="settings" hidden>
+  <h2><span class="gem">◆</span>Settings</h2>
+  <p class="hint">Saved for the next start of the server.</p>
+  <label>Fake players <input type="number" id="set-bots" min="0" max="10000" step="50"></label>
+  <label>EXP rate <input type="number" id="set-exp" min="0" max="1000" step="1"></label>
+  <label>Auto timer
+    <select id="set-drain">
+      <option value="0">Unlimited</option>
+      <option value="0.25">Lasts 4× longer</option>
+      <option value="0.5">Lasts 2× longer</option>
+      <option value="1">Original</option>
+    </select>
+  </label>
+  <label>Crystal drops <select id="set-crystal">
+      <option value="1">Elites, mini-bosses, MVPs</option>
+      <option value="0.5">Half the time</option>
+      <option value="0">Off</option>
+    </select>
+  </label>
+  <div class="drawer-buttons">
+    <button class="cream" id="set-save">Save</button>
+    <button class="cream ghost" id="set-cancel">Close</button>
+  </div>
+  <p class="hint" id="set-saved" hidden>Saved. Restart the server to use them.</p>
+  <hr>
+  <div class="links">
+    <button class="link" data-open="game">Game folder</button>
+    <button class="link" data-open="logs">Logs</button>
+    <button class="link" data-open="folder">RO3Emu folder</button>
+  </div>
+  <p class="hint" id="set-client"></p>
+  <p class="version" id="version"></p>
+</aside>
+
+<aside class="drawer log" id="log" hidden>
+  <h2><span class="gem">◆</span>Server log</h2>
+  <ul id="log-lines"></ul>
+  <div class="drawer-buttons"><button class="cream ghost" id="log-close">Close</button></div>
+</aside>
+
+<div class="modal" id="modal" hidden>
+  <div class="dialog">
+    <h3 id="modal-title">Question</h3>
+    <p id="modal-text"></p>
+    <input id="modal-input" type="text">
+    <div class="dialog-buttons" id="modal-buttons"></div>
+  </div>
+</div>
+
+<div class="curtain" id="curtain" hidden><div><div class="spinner"></div><p id="curtain-text">Saving your characters and stopping the server…</p></div></div>
+
+<script src="app.js"></script>
+</body>
+</html>

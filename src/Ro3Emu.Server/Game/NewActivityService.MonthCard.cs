@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Romsg;
 using Ro3Emu.Server.Data;
+using Ro3Emu.Server.Data.Config;
 
 namespace Ro3Emu.Server.Game;
 
@@ -87,9 +88,58 @@ public sealed partial class NewActivityService
                 MonthCardId = id, ExpireTs = newExpiry, LastDays = lastDays, DayAward = dayAward,
             };
             var costs = available > 0 ? new[] { (Entry: token, Count: available) } : [];
-            if (await CommitAsync(session, next, costs: costs, runtime: nextRuntime,
+            // MonthCardConfig._iBuyAward (the Novice card's 500 Sacred Relic Crystals) comes with each month the card
+            // item adds, in the same commit that spends it (inferred: the purchase itself is not served).
+            long buyAward = new MonthCardConfig(row).BuyAward;
+            var awards = buyAward > 0 ? Enumerable.Repeat(buyAward, available) : [];
+            if (await CommitAsync(session, next, awards, costs: costs, runtime: nextRuntime,
                 source: $"month-card/convert/{id}/{newExpiry}") != 0) return;
         }
+    }
+
+    /// <summary>
+    /// 2001 CREATE_ORDER of a monthly pass product with Ro3Emu:Pass:FreeProducts (inferred, not original: the original
+    /// server answered with a payment order whose transaction_url Lua_SDK_PayMgr._onCreateOrderResult opens). The
+    /// product's card items (MonthCardConfig._iProduct; PublicParamConfig.MonthCardAllBuyProductConfigID, the panel's
+    /// "Quick Buy", is every card) are delivered and converted at once as any owned 701/702 is. A card already stocked
+    /// to its _iDayLimit is left out, as the client greys out its buy (LC_MonthCardHelper.JustIsUpperLimit).
+    /// </summary>
+    public async Task<int> OrderMonthCardAsync(GameSession session, long productId)
+    {
+        if (!_freeProducts) return ErrorCodes.FeatureUnavailable;
+        var ownerScope = _loop.Owners != null ? await EnterLocalWithGateAsync(session, "activity/month-card-order") : null;
+        if (ownerScope == null) await session.ActivityGate.WaitAsync();
+        try
+        {
+            if (session.NewActivities == null || session.ActivityRuntime == null) return ErrorCodes.FeatureUnavailable;
+            if (ActivityError(session, 199, 21) is var error and not 0) return error;
+            var cards = OrderedCards(productId);
+            if (cards.Count == 0) return ErrorCodes.Parameter;
+            var grants = cards.Where(card => CanStock(session, card)).Select(card => new AwardGrant(checked((int)card.Item), 1)).ToArray();
+            if (grants.Length == 0) return ErrorCodes.Parameter;
+            int result = await CommitAsync(session, session.NewActivities.Clone(), extra: grants,
+                source: $"month-card/order/{productId}/{Guid.NewGuid():N}");
+            if (result == 0) await ReconcileMonthCardAsync(session);
+            return result;
+        }
+        finally { session.ActivityGate.Release(); ownerScope?.Dispose(); }
+    }
+
+    private List<MonthCardConfig> OrderedCards(long productId)
+    {
+        var cards = _data.Table("MonthCardConfig").Values.Select(row => new MonthCardConfig(row)).Where(card => card.Item > 0).ToList();
+        bool all = _data.Table("PublicParamConfig").TryGetValue("MonthCardAllBuyProductConfigID", out var value)
+            && GameData.Number(value) == productId;
+        return all ? cards : [.. cards.Where(card => card.Product == productId)];
+    }
+
+    /// <summary>Another _iDay fits under _iDayLimit, counting an owned item not converted yet.</summary>
+    private bool CanStock(GameSession session, MonthCardConfig card)
+    {
+        long today = _activityClock.Day(Now);
+        var existing = session.NewActivities!.ActivityInfo[199].ActivityParam.MonthCard.Infos.GetValueOrDefault(card.Id);
+        long left = existing?.ExpireTs > Now ? _activityClock.Day(existing.ExpireTs - 1) + 1 - today : 0;
+        return left + (Owned(session, checked((int)card.Item)) + 1) * card.Day <= card.DayLimit;
     }
 
     private long StartOfLocalDay(long dayNumber)

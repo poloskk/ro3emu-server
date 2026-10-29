@@ -46,6 +46,39 @@ public sealed partial class SkillCombatTests
     }
 
     /// <summary>
+    /// (inferred) A normal attack has no cooldown and may cancel a cast, so each click restarted the swing and
+    /// repeated clicks hit at click speed. Clicks inside the swing are taken but add nothing: the next swing comes
+    /// from the auto-attack loop when the last one's time is up.
+    /// </summary>
+    [ClientDataFact]
+    public async Task NormalAttackClicksInsideASwingAddNoSwing()
+    {
+        await using var alice = await InWorld("Alice");
+        var target = await Target("alice", stationary: true);
+        await Loop.InvokeAsync(() => { target.Hp = 1_000_000_000; return Task.CompletedTask; });
+        await alice.SendGameAsync(CombatService.UseSkill, new CastSkillReq { SkillId = 1000001, TargetId = target.Uid, ComboIndex = 1 });
+        var first = await Next(alice, CombatService.UseSkill, CastSkillRsp.Parser);
+        Assert.Equal(0, first.Result);
+        long ready = await Loop.InvokeAsync(() => Task.FromResult(Session("alice").NormalAttackReadyMs));
+        Assert.True(ready > MonsterService.NowMs);
+
+        for (int click = 2; click <= 6; click++)
+        {
+            await alice.SendGameAsync(CombatService.UseSkill, new CastSkillReq { SkillId = 1000001, TargetId = target.Uid, ComboIndex = click });
+            Assert.Equal(0, (await Next(alice, CombatService.UseSkill, CastSkillRsp.Parser)).Result);
+        }
+        await Loop.InvokeAsync(() =>
+        {
+            Assert.Equal(ready, Session("alice").NormalAttackReadyMs); // no click restarted the swing
+            Assert.True(Session("alice").Attack?.NextSwingMs >= ready);
+            return Task.CompletedTask;
+        });
+        long self = await Loop.InvokeAsync(() => Task.FromResult(Session("alice").Role!.Id));
+        await Next(alice, CombatService.UseInSkill, UseInSkillInfo.Parser, u => u.SrcID == self && u.SessionId != first.SessionId);
+        Assert.True(MonsterService.NowMs >= ready - 60, "the next swing came before the last one's time was up");
+    }
+
+    /// <summary>
     /// Clicking an enemy out of range: the client walks, sends the normal attack on reaching range and its stop a few
     /// milliseconds later (in-game 11.10). That stop moved the player off the loop's start point and ended the
     /// auto-attack after one swing, so clicking from afar only ever attacked once.

@@ -29,7 +29,8 @@ public static class ServerHost
         // One server per data dir (C/D 19): taken before anything opens the database, released when the app is disposed.
         builder.Services.AddSingleton(_ => RealmLock.Acquire(options.DataDir));
         builder.Services.AddSingleton(Options.Create(options));
-        builder.Services.AddSingleton(clock ?? TimeProvider.System);
+        builder.Services.AddSingleton(clock ?? (options.ClockOffsetMinutes != 0
+            ? new OffsetClock(TimeSpan.FromMinutes(options.ClockOffsetMinutes)) : TimeProvider.System));
         builder.WebHost.UseUrls($"http://{options.ListenAddress()}:{options.HttpPort}"); // loopback for local play and tests
         // Kestrel stops first and waits for every HTTP connection (a half-sent request holds it for the 30 s header timeout),
         // and the gates, loop and database stop only after it. The reaper aborts what is left a moment after stop begins.
@@ -548,4 +549,10 @@ internal sealed class HttpConnectionReaper
     {
         foreach (var connection in _open.Keys) connection.Abort();
     }, TaskScheduler.Default);
+}
+
+/// <summary>ServerOptions.ClockOffsetMinutes: the system clock shifted (a test aid for timed resets, inferred).</summary>
+internal sealed class OffsetClock(TimeSpan offset) : TimeProvider
+{
+    public override DateTimeOffset GetUtcNow() => System.GetUtcNow() + offset;
 }

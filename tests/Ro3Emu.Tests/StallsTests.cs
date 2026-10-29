@@ -22,6 +22,8 @@ public sealed partial class StallsTests : IAsyncLifetime
 {
     private readonly string _dataDir = Path.Combine(Path.GetTempPath(), "ro3emu-stalls-" + Guid.NewGuid().ToString("N"));
     private readonly MutableClock _clock = new();
+    private bool _stallsOnAllLines; // Ro3Emu:StallsOnAllLines, set by a test before it restarts the host
+    private long _crystalGearRate; // Ro3Emu:CrystalGear:Rate, likewise
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
     private WebApplication _app = null!;
     private string _http = "";
@@ -38,6 +40,8 @@ public sealed partial class StallsTests : IAsyncLifetime
         {
             o.DataDir = _dataDir; o.GameDataDir = Path.Combine(RepoRoot(), "data");
             o.HttpPort = port; o.MicroGatePort = microPort; o.GameGatePort = gamePort;
+            o.StallsOnAllLines = _stallsOnAllLines;
+            o.CrystalGear.Rate = _crystalGearRate;
         }, _clock);
         await _app.StartAsync(); _http = $"http://127.0.0.1:{port}";
     }
@@ -299,6 +303,70 @@ public sealed partial class StallsTests : IAsyncLifetime
         Assert.Equal(0, listing.Result);
         Assert.Equal(2, listing.Info.Baseinfo.SceneLineNum);
         Assert.Equal(0, await Purchase(buyer, sellerId, listing.Info.Itembase[0].StallsItemID));
+    }
+
+    /// <summary>Ro3Emu:StallsOnAllLines: a stall opened on Prontera's second line shows and sells on its first.</summary>
+    [ClientDataFact]
+    public async Task WithStallsOnAllLinesAPlayerStallSellsOnTheTownsOtherLine()
+    {
+        await _app.StopAsync(); await _app.DisposeAsync();
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        _stallsOnAllLines = true;
+        await InitializeAsync();
+        await using var seller = await InWorld("Seller");
+        await using var buyer = await InWorld("Buyer");
+        await Ready(seller); await Ready(buyer);
+        await Gm(seller, "!item 1000100 3");
+        await Gm(buyer, "!item 2 50000");
+        async Task Enter(BotClient bot, int line, bool create)
+        {
+            await Service<GameLoop>().InvokeAsync(async () =>
+                Assert.True(await Service<SceneService>().EnterSceneAsync(Session(bot), 10100, lineNumber: line, createLine: create)));
+            var sw = await Next(bot, MsgId.SwitchSceneLine, SwitchSceneLineResp.Parser);
+            Assert.Equal(create ? 2 : line, sw.Linenum);
+            await bot.SendGameAsync(MsgId.SceneLoaded, new SceneLoadedReq { SceneId = sw.SceneEntry });
+            Assert.Equal(0, (await Next(bot, MsgId.SceneLoaded, SceneLoadedResp.Parser)).Result);
+            await Next(bot, MsgId.EntitySelf, EntitySelf.Parser);
+        }
+        await Enter(seller, 0, create: true);
+        long sellerId = Id(seller);
+        Assert.Equal(0, (await Open(seller, Offer(Items(seller).Single(i => i.Entry == 1000100).Guid))).Result);
+
+        await Enter(buyer, 1, create: false); // the born point, where the seller opened on line 2
+        await Next(buyer, GameAoiSink.SyncAoiView, AoIViewChangeData.Parser,
+            view => view.Bases.Any(entity => entity.StallsInfo?.StallsID == sellerId));
+        await buyer.SendGameAsync(StallsService.View, new PlayerStallsSyncBuyerStallsInfoReq
+        { StallsID = sellerId, SceneEntryID = 10100, SceneLineNum = 1 });
+        var listing = await Next(buyer, StallsService.View, PlayerStallsSyncBuyerStallsInfoResp.Parser);
+        Assert.Equal(0, listing.Result);
+        Assert.Equal(1, listing.Info.Baseinfo.SceneLineNum);
+        Assert.Equal(0, await Purchase(buyer, sellerId, listing.Info.Itembase[0].StallsItemID));
+    }
+
+    /// <summary>Ro3Emu:CrystalGear: a red armour (auction only, priced in Zeny) is stall goods for Sacred Relic Crystals
+    /// at its base / rate, refused for Zeny, and bought with crystals.</summary>
+    [ClientDataFact]
+    public async Task WithCrystalGearRedGearSellsForCrystals()
+    {
+        await _app.StopAsync(); await _app.DisposeAsync();
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        _crystalGearRate = 5000;
+        await InitializeAsync();
+        await using var seller = await InWorld("Seller");
+        await using var buyer = await InWorld("Buyer");
+        await Ready(seller); await Ready(buyer);
+        const int RedArmour = 2550760, Crystal = 3;
+        await Gm(seller, $"!item {RedArmour} 1");
+        await Gm(buyer, $"!item {Crystal} 1000");
+        long guid = Items(seller).Single(i => i.Entry == RedArmour).Guid;
+        int price = (int)StallsService.CrystalBase(1212500, 5000); // TradeConfig _iBasePrice; a fixed 10/10 step
+        Assert.Equal(ErrorCodes.TradePrice, (await Open(seller, Offer(guid, 1, 1212500, currency: 1))).Result);
+        Assert.Equal(0, (await Open(seller, Offer(guid, 1, price, currency: Crystal))).Result);
+        long sellerId = Id(seller);
+        await buyer.SendGameAsync(StallsService.View, new PlayerStallsSyncBuyerStallsInfoReq { StallsID = sellerId, SceneEntryID = 10100, SceneLineNum = 1 });
+        var listing = await Next(buyer, StallsService.View, PlayerStallsSyncBuyerStallsInfoResp.Parser);
+        Assert.Equal(0, listing.Result);
+        Assert.Equal(0, await Purchase(buyer, sellerId, listing.Info.Itembase[0].StallsItemID, price: price));
     }
 
     [ClientDataFact]

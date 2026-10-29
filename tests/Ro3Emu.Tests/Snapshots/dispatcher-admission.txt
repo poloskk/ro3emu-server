@@ -90,7 +90,7 @@
 10003	economic dispatcher/economic request	refused
 30005	runtime dispatcher/owned continuation	refused
 30006	session Realm:legacy: dispatcher/unrouted	refused
-30007	session Realm:legacy: dispatcher/30007	refused
+30007	runtime dispatcher/view settings	refused
 30012	session role:WholeRole dispatcher/30012	refused
 30013	session Realm:legacy: dispatcher/30013	refused
 30014	session Realm:legacy: dispatcher/30014	refused

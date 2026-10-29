@@ -12,23 +12,45 @@ internal static class Ui
     /// <summary>False when nobody can answer (stdin redirected, --yes): questions take their default.</summary>
     public static bool Interactive { get; set; } = !Console.IsInputRedirected;
 
+    /// <summary>The launcher window, when the flows run in it instead of a console.</summary>
+    public static IUiHost? Host { get; set; }
+
     public static void Title(string text)
     {
-        Write(ConsoleColor.Cyan, "\n" + text + "\n" + new string('=', text.Length));
+        Write(ConsoleColor.Cyan, "\n" + text + "\n" + new string('=', text.Length), UiLine.Title, text);
     }
 
-    public static void Step(string text) => Write(ConsoleColor.Cyan, "\n> " + text);
+    public static void Step(string text) => Write(ConsoleColor.Cyan, "\n> " + text, UiLine.Step, text);
 
-    public static void Info(string text) => Write(null, "  " + text);
+    public static void Info(string text) => Write(null, "  " + text, UiLine.Info, text);
 
-    public static void Ok(string text) => Write(ConsoleColor.Green, "  " + text);
+    public static void Ok(string text) => Write(ConsoleColor.Green, "  " + text, UiLine.Ok, text);
 
-    public static void Warn(string text) => Write(ConsoleColor.Yellow, "  " + text);
+    public static void Warn(string text) => Write(ConsoleColor.Yellow, "  " + text, UiLine.Warn, text);
 
-    public static void Error(string text) => Write(ConsoleColor.Red, "\n" + text);
+    public static void Error(string text) => Write(ConsoleColor.Red, "\n" + text, UiLine.Error, text);
 
-    private static void Write(ConsoleColor? color, string text)
+    /// <summary>Where the flow is, for the window (no console output).</summary>
+    public static void Phase(string phase) => Host?.Phase(phase);
+
+    /// <summary>Fake players online, for the window (the console shows its own lines).</summary>
+    public static void Bots(int online, int total) => Host?.Bots(online, total);
+
+    /// <summary>A key pressed in the window or the console since the last call, or null.</summary>
+    public static ConsoleKey? TakeKey()
     {
+        if (Host != null) return Host.TakeKey();
+        return Interactive && !Console.IsInputRedirected && Console.KeyAvailable ? Console.ReadKey(intercept: true).Key : null;
+    }
+
+    private static void Write(ConsoleColor? color, string text, UiLine kind, string plain)
+    {
+        if (Host is { } host)
+        {
+            host.Line(kind, plain);
+            SetupLog.Write(text.Trim('\n'));
+            return;
+        }
         lock (Gate)
         {
             EndProgress();
@@ -39,9 +61,14 @@ internal static class Ui
         }
     }
 
-    /// <summary>Rewrites one status line (no log).</summary>
-    public static void Progress(string text)
+    /// <summary>Rewrites one status line (no log); <paramref name="fraction"/> (0-1) feeds the window's bar.</summary>
+    public static void Progress(string text, double? fraction = null)
     {
+        if (Host is { } host)
+        {
+            host.Progress(text, fraction);
+            return;
+        }
         lock (Gate)
         {
             if (Console.IsOutputRedirected) return;
@@ -54,6 +81,7 @@ internal static class Ui
 
     public static void EndProgress()
     {
+        Host?.EndProgress();
         lock (Gate)
         {
             if (!_progressShown) return;
@@ -71,6 +99,12 @@ internal static class Ui
     public static bool Confirm(string question, bool defaultYes = true)
     {
         if (!Interactive) return defaultYes;
+        if (Host is { } host)
+        {
+            bool yes = host.Confirm(question, defaultYes);
+            SetupLog.Write($"{question} -> {(yes ? "yes" : "no")}");
+            return yes;
+        }
         lock (Gate) EndProgress();
         Console.Write("  " + question + (defaultYes ? " [Y/n] " : " [y/N] "));
         var answer = Console.ReadLine()?.Trim() ?? "";
@@ -83,6 +117,12 @@ internal static class Ui
     public static string Ask(string question, string defaultValue = "")
     {
         if (!Interactive) return defaultValue;
+        if (Host is { } host)
+        {
+            string given = host.Ask(question, defaultValue).Trim();
+            SetupLog.Write($"{question} -> '{given}'");
+            return given.Length == 0 ? defaultValue : given;
+        }
         lock (Gate) EndProgress();
         Console.Write("  " + question + (defaultValue.Length > 0 ? $" [{defaultValue}] " : " "));
         var answer = Console.ReadLine()?.Trim() ?? "";

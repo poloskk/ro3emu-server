@@ -53,6 +53,10 @@ public sealed class GameSession(PhonestChannel channel, TrafficLog traffic)
     // Cleanup may run after a selection bound a role but before its per-role loaders finished.
     internal bool RolePositionReady { get; set; }
     internal bool GuildOnlinePublished { get; set; }
+    /// <summary>The heartbeat's reconciliation is running (CoreMessages): later heartbeats do not queue another.</summary>
+    internal bool HeartbeatReconciling { get; set; }
+    /// <summary>The daily ticker's reconciliation is queued (DailyActivityService.Tick): it posts no second one.</summary>
+    internal bool DailyReconcileQueued { get; set; }
 
     internal void ClearRoleLoadState()
     {
@@ -166,6 +170,8 @@ public sealed class GameSession(PhonestChannel channel, TrafficLog traffic)
     public long ImmuneRecoveryUntilMs { get; set; }
     public int ImmuneRecoveryPercent { get; set; }
     public Dictionary<int, long> SkillCds { get; } = new();
+    /// <summary>When the last normal attack's swing (chant + attack-speed action time) ends (CombatService).</summary>
+    public long NormalAttackReadyMs { get; set; }
     public Dictionary<int, long> ItemCds { get; } = new();
     public Dictionary<int, long> ItemGroupCds { get; } = new();
 

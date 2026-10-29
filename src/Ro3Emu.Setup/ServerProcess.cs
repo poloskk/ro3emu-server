@@ -101,7 +101,8 @@ internal sealed class ServerProcess : IDisposable
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             RedirectStandardInput = true,
-            CreateNoWindow = false,
+            // In the console it shares RO3Emu's window; under the launcher window it has none of its own.
+            CreateNoWindow = Ui.Host != null,
             WorkingDirectory = Path.GetDirectoryName(exe)!,
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
@@ -110,7 +111,7 @@ internal sealed class ServerProcess : IDisposable
         foreach (var (k, v) in environment) start.Environment[k] = v;
         // The bundled server is self-contained; never let a machine-wide .NET or a developer variable steer it.
         start.Environment.Remove("DOTNET_ROOT");
-        start.Environment["DOTNET_gcServer"] = "0";
+        if (!environment.ContainsKey("DOTNET_gcServer")) start.Environment["DOTNET_gcServer"] = "0";
         SetupLog.Write($"server: {exe} {string.Join(' ', start.ArgumentList)}");
 
         var process = new Process { StartInfo = start, EnableRaisingEvents = true };
@@ -188,7 +189,9 @@ internal sealed class ServerProcess : IDisposable
         if (_job != IntPtr.Zero) CloseHandle(_job);
     }
 
-    private static IntPtr KillOnCloseJob(Process process)
+    internal static void CloseJob(IntPtr job) => CloseHandle(job);
+
+    internal static IntPtr KillOnCloseJob(Process process)
     {
         var job = CreateJobObject(IntPtr.Zero, null);
         if (job == IntPtr.Zero) return IntPtr.Zero;

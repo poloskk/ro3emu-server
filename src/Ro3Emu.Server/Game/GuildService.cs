@@ -76,7 +76,7 @@ public sealed partial class GuildService(GameData data, GuildStore store, RoleSt
         member.Level = session.Progress?.Level ?? member.Level;
         member.Career = session.Progress?.Career ?? member.Career;
         member.OfflineTime = online ? -1 : NowSec();
-        await SaveGuildAsync(guild);
+        await SaveGuildRowAsync(guild);
         await PushMember(guild, member, GuildMemberInfoChangeNtf.Types.ChangeType.Update, online ? 0 : member.RoleId);
     }
 

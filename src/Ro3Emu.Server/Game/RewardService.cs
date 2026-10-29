@@ -38,8 +38,11 @@ public sealed class RewardService
     /// <summary>Monster Hunt: its kill counters join the kill's own transaction, after the AFK child (MonsterHuntService).</summary>
     internal Action<GameSession, MonsterUnit, RewardSettlement>? StageHuntKill { get; set; }
 
-    public RewardService(CombatService combat, CharacterService character, TeamService teams, GameData data, ILogger<RewardService> log)
+    public RewardService(CombatService combat, CharacterService character, TeamService teams, GameData data, ILogger<RewardService> log,
+        Microsoft.Extensions.Options.IOptions<ServerOptions>? options = null)
     {
+        _expRate = Math.Max(0, options?.Value.ExpRate ?? 1);
+        if (options?.Value.CrystalDrops is { Chance: > 0 } crystals) ExtraKillDrops.Add((_, monster) => CrystalDrop(crystals, monster));
         this._character = character;
         this._teams = teams;
         this._data = data;
@@ -47,6 +50,20 @@ public sealed class RewardService
         _attenuation = new DropAttenuation(data);
         combat.BeforeKilled.Add(PrepareKilledAsync);
         combat.Killed.Add(KilledAsync);
+    }
+
+    private readonly double _expRate;
+
+    /// <summary>enum_MonsterType (clientB Lua_GameDefine) in NPCConfig _iNPCSubType: MT_Elite, MT_MINI, MT_MVP.</summary>
+    private const long EliteType = 2, MiniType = 3, MvpType = 4;
+
+    /// <summary>Ro3Emu:CrystalDrops (inferred, a realm policy): crystals from an elite, mini-boss or MVP kill.</summary>
+    private IEnumerable<(int Entry, int Count)> CrystalDrop(CrystalDropOptions crystals, MonsterUnit monster)
+    {
+        long type = Data.Config.NPCConfig.Get(_data, monster.Template.NpcId)?.NPCSubType ?? 0;
+        if (type is not (EliteType or MiniType or MvpType) || _random.NextDouble() >= crystals.Chance) yield break;
+        var (min, max) = type == MvpType ? (crystals.MvpMin, crystals.MvpMax) : (crystals.Min, crystals.Max);
+        if (max >= min && max > 0) yield return (crystals.Item, _random.Next(Math.Max(1, min), max + 1));
     }
 
     private sealed class KillOutcome
@@ -169,6 +186,8 @@ public sealed class RewardService
             long gap = player.Progress!.Level - monster.Template.Level;
             baseExp = baseExp * Correction((int)Math.Clamp(gap, -200, 200)) / 10000;
             baseExp = Math.Max(1, baseExp * _teams.ExpBonus(player) / 10000);
+            // Ro3Emu:ExpRate, after the original's own corrections.
+            if (_expRate != 1) baseExp = Math.Max(1, (long)Math.Round(baseExp * _expRate));
         }
         // BaseExpAddConfig catch-up below the server level raises Base EXP only (CharacterService.LevelRules).
         return (items, _character.WithPursueBonus(player.Progress!.Level, baseExp), baseExp);

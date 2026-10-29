@@ -39,6 +39,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Ro3Emu.Setup.Tests" />
+    <!-- The launcher window runs the same flows in process (Ui.Host). -->
+    <InternalsVisibleTo Include="RO3EmuPlay" />
   </ItemGroup>
 
 </Project>

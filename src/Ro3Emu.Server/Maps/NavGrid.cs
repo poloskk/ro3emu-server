@@ -64,13 +64,15 @@ public sealed class NavGrid
 
     /// <summary>
     /// Whether the straight 2D segment from a to b crosses only walkable cells (sampled every half metre, heights
-    /// followed cell by cell like the client's direct-walk check).
+    /// followed cell by cell like the client's direct-walk check). The walk starts on the start cell's walkable layer
+    /// nearest <paramref name="ay"/>: a client may report a height far from the grid's (Sograt Desert 10514 reports y 0
+    /// on its +8 m plateau), and every cell would then look blocked.
     /// </summary>
     public bool CanWalk(float ax, float ay, float az, float bx, float bz)
     {
         float dx = bx - ax, dz = bz - az;
         int steps = Math.Max(1, (int)MathF.Ceiling(MathF.Sqrt(dx * dx + dz * dz) / 0.5f));
-        float y = ay;
+        float y = WalkHeight(ax, az, ay) ?? ay;
         for (int i = 1; i <= steps; i++)
         {
             float t = (float)i / steps, x = ax + dx * t, z = az + dz * t;

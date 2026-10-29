@@ -607,9 +607,14 @@ public sealed class SkillService
                     code = !tree.Contains(group) ? ErrorCodes.SkillNotInTree
                         : target.SkillId != 0 && target.SkillId != group ? ErrorCodes.Parameter
                         : target.SkillLevel > MaxLevel(group) ? ErrorCodes.SkillMaxLevel
-                        : target.SkillLevel < Initial(p, group) || target.SkillLevel < 0 ? ErrorCodes.Parameter : 0;
+                        : target.SkillLevel < 0 ? ErrorCodes.Parameter : 0;
                     if (code != 0) break;
-                    selected.SkillAssigns[group] = new SkillData { SkillId = group, SkillLevel = target.SkillLevel };
+                    // The skill build panel sends an untouched free skill (_iInitialLevel 1, a Knight's 12110) as 0:
+                    // no points spent. (inferred) It keeps its free level rather than refusing the whole build.
+                    selected.SkillAssigns[group] = new SkillData
+                    {
+                        SkillId = group, SkillLevel = Math.Max(target.SkillLevel, Initial(p, group)),
+                    };
                 }
                 if (code == 0)
                     foreach (var (group, target) in req.LevelUpList)
@@ -661,7 +666,9 @@ public sealed class SkillService
         foreach (int group in tree)
         {
             int level = Level(p, group);
-            if (level <= 0) continue;
+            // A free level (_iInitialLevel: a Knight's 12110 needs 12002) is granted, not learned: (inferred) the skill
+            // build panel applies a build that leaves its prerequisite at 0, so only bought levels need theirs.
+            if (level <= 0 || level <= Initial(p, group)) continue;
             if (_data.Row("SkillConfig", RealId(group, level)) is not { } row) return false;
             if (!row.TryGetProperty("_kPreSkillRequired", out var pre) || pre.ValueKind != JsonValueKind.Array) continue;
             foreach (var req in pre.EnumerateArray())

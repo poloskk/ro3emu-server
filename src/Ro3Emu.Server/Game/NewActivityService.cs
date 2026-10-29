@@ -44,7 +44,7 @@ public sealed partial class NewActivityService
     private readonly DungeonService _dungeons;
     private readonly PronteraDefenseService _defense;
     private readonly TeamService _teams;
-    private readonly bool _freePremiumPass, _passPlay;
+    private readonly bool _freePremiumPass, _passPlay, _freeProducts;
     private readonly ILogger<NewActivityService> _log;
     private readonly HashSet<(GameSession Session, long Attachment)> _queued = new();
     private long Now => _clock.GetUtcNow().ToUnixTimeSeconds();
@@ -65,6 +65,7 @@ public sealed partial class NewActivityService
         this._teams = teams;
         _freePremiumPass = options.Value.Pass.FreePremium;
         _passPlay = options.Value.Pass.Play;
+        _freeProducts = options.Value.Pass.FreeProducts;
         if (_passPlay) InitializePassPlay(combat, dungeons, mvps, tasks, chat);
         dungeons.JourneyWon = JourneyDungeonWonAsync;
         dungeons.CanStageJourneyVictory = session => ActivityError(session, 112, 15) == 0;

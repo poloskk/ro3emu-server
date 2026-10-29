@@ -39,6 +39,16 @@ public class SetupTests
     }
 
     [Fact]
+    public void BotsAreACountOrAbsent()
+    {
+        Assert.Null(Options.Parse([]).Bots);
+        Assert.Equal(3500, Options.Parse(["--bots", "3500"]).Bots);
+        Assert.Equal(0, Options.Parse(["start", "--bots", "0"]).Bots);
+        Assert.Throws<SetupException>(() => Options.Parse(["--bots", "-1"]));
+        Assert.Throws<SetupException>(() => Options.Parse(["--bots", "many"]));
+    }
+
+    [Fact]
     public void VoiceIsOffUnlessAVoicePortIsGiven()
     {
         Assert.Equal(0, Options.Parse(["host"]).Ports.Voice);

@@ -4,6 +4,7 @@ using Google.Protobuf;
 using Romsg;
 using Ro3Emu.Server.Accounts;
 using Ro3Emu.Server.Data;
+using Ro3Emu.Server.Data.Config;
 
 namespace Ro3Emu.Server.Game;
 
@@ -14,7 +15,8 @@ namespace Ro3Emu.Server.Game;
 /// </summary>
 public sealed partial class TradeService(
     GameData data, CharacterService character, FunctionService functions, RoleStore roles,
-    SeasonService seasons, MarketStore market, SessionRegistry sessions, TimeProvider clock, ILogger<TradeService> log)
+    SeasonService seasons, MarketStore market, SessionRegistry sessions, TimeProvider clock, ILogger<TradeService> log,
+    Microsoft.Extensions.Options.IOptions<ServerOptions> options)
 {
     public const uint TradeSync = 5033;
     public const uint QueryProduct = 32602, QueryInventory = 32603, FindPrice = 32604, BuyHistory = 32605,
@@ -158,9 +160,18 @@ public sealed partial class TradeService(
         return row;
     }
 
+    private CrystalGearOptions Crystal => options.Value.CrystalGear;
+
+    /// <summary>The currency a listing is priced in: TradeConfig _iMoney, or the crystals of crystal gear (Ro3Emu:CrystalGear).</summary>
+    private int SaleCurrency(JsonElement row) => Crystal.Covers(data, new TradeConfig(row).Id) ? Crystal.Currency
+        : (int)new TradeConfig(row).Money;
+
     private (int Min, int Max, int Base, int[] Ladder) PriceRule(JsonElement row)
     {
-        int basis = (int)Math.Max(1, GameData.Int(row, "_iBasePrice"));
+        var config = new TradeConfig(row);
+        long zeny = config.BasePrice;
+        // Crystal gear (Ro3Emu:CrystalGear, inferred) keeps its stable range on its crystal base.
+        int basis = (int)Math.Clamp(Crystal.Covers(data, config.Id) ? Crystal.Base(zeny) : zeny, 1, int.MaxValue);
         int ceiling = (int)Math.Min(int.MaxValue, Public("TradeLimitPrice", 999_999_999));
         // (inferred) _kStableRange [5,15] are tenths of the basic price. The hidden backend's
         // market-sensitive computation is unavailable; this deterministic config range keeps repricing useful.

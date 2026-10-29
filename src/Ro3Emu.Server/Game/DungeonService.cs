@@ -122,6 +122,10 @@ public sealed partial class DungeonService
         public HashSet<(ReconstructedDungeons.TriggerKind Kind, long Id)> StepSeen { get; } = [];
         /// <summary>A scripted step's strikes taken so far, by monster uid.</summary>
         public Dictionary<long, int> Struck { get; } = [];
+        /// <summary>A step's teleport a participant's client has not shown it took yet (DungeonService.ConfirmLandingAsync).</summary>
+        public Dictionary<GameSession, Landing> Landings { get; } = [];
+        /// <summary>When each participant's walked position was last logged during a waiting scripted step.</summary>
+        public Dictionary<GameSession, DateTime> PositionLogged { get; } = [];
         /// <summary>A step's own timers' generation: each step (and each new hide-and-seek game) starts a new one, so a
         /// stale timer does nothing.</summary>
         public int StepGeneration { get; set; }
@@ -242,7 +246,11 @@ public sealed partial class DungeonService
         if (error == 0 && selected != null && (selected.TeamID != 0 && selected.TeamID != membership.TeamId
             || selected.DungeonId != 0 && selected.DungeonId != s.InstanceId)) error = ErrorCodes.Parameter;
         await s.SendGameAsync(Enter, new EnterDungeonRsp { Result = error });
-        if (error != 0) return;
+        if (error != 0)
+        {
+            _log.LogInformation("{Role} may not enter dungeon {Scene}: {Error}", s.Role?.Name, req.SceneEntry, error);
+            return;
+        }
         if (members.Length == 1) { await BeginAsync(plan!, members, s.Role!.Id, membership.TeamId); return; }
         var p = new Preparation { Plan = plan!, Members = members, Leader = s, TeamId = membership.TeamId };
         p.Ready.Add(s); // Initiating the request is the leader's affirmative answer (inferred).

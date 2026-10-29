@@ -281,10 +281,53 @@ public sealed partial class DungeonService
         await GmCommands.ReplyAsync(s, FormattableString.Invariant($"Beside {npc} at {actor.X + 1:0.0},{actor.Z:0.0}, 1 m from it (reach {Reach(actor)} m)."));
     }
 
-    /// <summary>A participant's accepted walk: server regions and points of the current step.</summary>
+    /// <summary>A step's teleport: where to, where the participant was, until when it is watched, sends so far.</summary>
+    public sealed record Landing(MapPoint To, Vec3 From, DateTime Until, int Sends);
+
+    /// <summary>How near its old spot a walk report counts as not having moved, and how long and often a landing is
+    /// watched (inferred).</summary>
+    private const float LandingStale = 10f;
+    private static readonly TimeSpan LandingWatch = TimeSpan.FromSeconds(60);
+    private const int LandingSends = 5;
+    private static readonly TimeSpan PositionLogEvery = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// A step's teleport the client did not take: its walk reports still come from where the player was. The live client
+    /// stayed at the vortex of 1000201 three runs out of three: walking into region 20 completes the step at the moment
+    /// its auto interaction casts 'Jump into the Cave' (SkillConfig 5362001, _iActionTime 2067), and the ForceTeleport
+    /// that lands during it does not hold (inferred from the walk reports). So the teleport goes again on such a report, a
+    /// few times; a report from anywhere else (the landing, or a walk on from it) ends the watch.
+    /// </summary>
+    private async Task ConfirmLandingAsync(Attempt a, GameSession s)
+    {
+        if (!a.Landings.TryGetValue(s, out var landing)) return;
+        bool stale = MonsterService.Distance(s.Position.X, s.Position.Z, landing.From.X, landing.From.Z) <= LandingStale;
+        if (!stale || DateTime.UtcNow > landing.Until || landing.Sends >= LandingSends)
+        {
+            a.Landings.Remove(s);
+            return;
+        }
+        a.Landings[s] = landing with { Sends = landing.Sends + 1 };
+        _log.LogInformation("Scripted scene {Scene}: {Role} still walks at {X:0.0},{Z:0.0}; its teleport goes again ({Sends})",
+            a.Plan.SceneEntry, s.Role?.Name, s.Position.X, s.Position.Z, landing.Sends + 1);
+        await _scenes.TeleportInMapAsync(s, landing.To);
+    }
+
+    /// <summary>A participant's accepted walk: a step's teleport it has not taken, then server regions and points of the
+    /// current step.</summary>
     public async Task PlayerMovedAsync(GameSession s)
     {
-        if (s.DungeonAttempt == null || Active(s) is not { } a || Step(a) is not { } step || a.StepDone) return;
+        if (s.DungeonAttempt == null || Active(s) is not { } a) return;
+        await ConfirmLandingAsync(a, s);
+        if (Step(a) is not { } step || a.StepDone) return;
+        // Diagnostic: where the client walks while a step waits on it (a step the live client never completes
+        // otherwise leaves no trace of where the player was).
+        if (DateTime.UtcNow - a.PositionLogged.GetValueOrDefault(s) >= PositionLogEvery)
+        {
+            a.PositionLogged[s] = DateTime.UtcNow;
+            _log.LogInformation("Scripted scene {Scene} step {Step}: {Role} walks at {X:0.0},{Y:0.0},{Z:0.0}",
+                a.Plan.SceneEntry, a.Wave + 1, s.Role?.Name, s.Position.X, s.Position.Y, s.Position.Z);
+        }
         if (step.Seek != null) return; // a hiding place counts when the seeker looks (DungeonService.HideAndSeek)
         foreach (var t in step.Complete)
         {
@@ -325,7 +368,10 @@ public sealed partial class DungeonService
             a.Plan.SceneEntry, a.Wave + 1, step.Stage, s.Role?.Id, string.Join(", ", events));
         if (step.TeleportAfter != 0 && _catalog.ScenePoint(a.Plan.SceneEntry, step.TeleportAfter) is { } to)
             foreach (var member in Present(a).Where(m => a.Loaded.Contains(m) && !m.SceneLoading))
+            {
+                a.Landings[member] = new Landing(to, member.Position.Clone(), DateTime.UtcNow + LandingWatch, 1);
                 await _scenes.TeleportInMapAsync(member, to);
+            }
         // The next step or the settlement runs in its own owner scope, like the room's timers: the message that
         // completed the step (a walk, an interaction, a plot end) reserves only what its own route needs.
         _loop.PostLegacy(() => AdvanceAsync(a), "dungeon scripted step");

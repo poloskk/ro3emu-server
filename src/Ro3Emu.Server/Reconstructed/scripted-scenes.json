@@ -17,13 +17,15 @@
         "DungeonQuestConfig 5300008-5300010: 1 Explore ahead (Head deeper into Maya's lair), 2 Bobo was sucked into the vortex (Jump into the vortex), 3 The Passage Beneath the Vortex (Avoid the ant eggs and reach the end of the passage).",
         "Editor sc_plot_yhcx_001_dg01: guide point 24 runs from the born point to (98.8, 82.3) at the corridor, guide point 38 from there to (99.2, 99.8) beside region 20; region 20 is a 5 m circle (regionType 2) at (100.5, 102.3), region 22 a 30 x 5 m rectangle (regionType 2, triggerType 1) at the bottom of the passage (z 624.9), region 25 the 40 x 10 m corridor in front of the vortex.",
         "NPC 5300030 is the empty model 70010 with interaction 5300030: AutoInteractWhenInRange, interaction skill 5362001 'Jump into the Cave'.",
-        "Nav sc_plot_yhcx_001: the passage is one continuous walkable ramp from z 238 (y 253) to z 622 (y 31); point 21 (100.0, 235.9, 267.5) lies on it near its top; point 27 'final drop position' is below it, off the nav.",
+        "Nav sc_plot_yhcx_001: the passage is one continuous walkable ramp from z 238 (y 253) to z 627 (y 29), through region 22; point 21 (100.0, 235.9, 267.5) lies on it near its top; point 27 'final drop position' is below it, off the nav.",
         "Points 29-33 are client-only Ant Eggs (monsterType 1, clientMonsterConfigKey MainStoryAntEggExploseParam, npc 5300036, not created on scene init)."
       ],
       "guessed": [
         "Step 1 completes in region 25 (the corridor where guide 24 ends): region 25 is regionType 1, not one of the explicit server regions.",
         "Bobo (5300027) stands at point 26 (the anchor of patrol 26, which runs into the vortex) during step 1 and is gone in step 2; the run into the vortex itself is not animated.",
         "The jump is a teleport to point 21 at the top of the passage; the original fall/slide (and its camera) is not reproduced.",
+        "Step 3 also completes within 10 m of point 22: the live client cannot walk past the drop at the end of the passage, 1 m before region 22.",
+        "Region 20 (the vortex's own server region) does not complete step 2: walking into it completed the step just before the client's auto interaction arrived, which then met no vortex ('NPC not found') in every live run.",
         "The exploding ant eggs are not reproduced: their creation trigger is not in the client data.",
         "The original continued seamlessly into 1000301 (DungeonConfig 1000301 _iSameDupLoadingType 2 from 1000201); here the player leaves and enters 1000301 from the quest tracker (action 3000)."
       ],
@@ -45,8 +47,7 @@
             { "npc": 5300030, "point": 20, "why": "the vortex: empty model with the auto interaction 'Jump into the Cave', at region 20's centre" }
           ],
           "complete": [
-            { "interaction": 5300030, "why": "the client sends it when the player walks into the vortex's interaction range" },
-            { "region": 20, "why": "the vortex's own server region (regionType 2), where guide point 38 ends" }
+            { "interaction": 5300030, "why": "the client sends it when the player walks into the vortex's interaction range (NPCConfig _iInteractDistance 5)" }
           ],
           "after": { "teleport": 21, "why": "the passage beneath the vortex: point 21 lies on the walkable ramp near its top" }
         },
@@ -54,7 +55,8 @@
           "quest": 3,
           "stage": "The passage beneath the vortex: reach the end of the passage",
           "complete": [
-            { "region": 22, "why": "the server region (regionType 2, triggerType 1) at the bottom of the ramp" }
+            { "region": 22, "why": "the server region (regionType 2, triggerType 1) at the bottom of the ramp" },
+            { "point": 22, "radius": 10, "why": "within 10 m of region 22's centre: the live client stops at the edge of the drop (z 621.4, x 106.8), 1 m before the region (z 622.35-627.35), which the original's fall carried the player into (inferred)" }
           ]
         }
       ]

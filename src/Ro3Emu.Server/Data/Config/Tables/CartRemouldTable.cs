@@ -6,6 +6,7 @@ namespace Ro3Emu.Server.Data.Config;
 [ConfigTable("CartRemouldTable")]
 public readonly partial record struct CartRemouldTable(JsonElement Row)
 {
+    [ConfigField("_iCartID")] public partial long Id { get; }
     [ConfigField("_iPendantId")] public partial long PendantId { get; }
     [ConfigField("_iSubType")] public partial long SubType { get; }
     [ConfigField("_iTaskId")] public partial long TaskId { get; }

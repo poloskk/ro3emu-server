@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Romsg;
 using Ro3Emu.Server.Data;
+using Ro3Emu.Server.Data.Config;
 using Ro3Emu.Server.Economy;
 
 namespace Ro3Emu.Server.Game;
@@ -263,6 +264,38 @@ public sealed partial class NewActivityService
             if (await CommitAsync(session, next, costs: costs, runtime: nextRuntime,
                 source: $"pass/activate/{activityId}/{info.ActivityInstance}/{premiumItem}") != 0) return;
         }
+    }
+
+    /// <summary>ProductConfig rows of _iType 3 (clientB Lua_GameDefine enum_ProductId.BattlePass, BattlePass_GIFT).</summary>
+    public const long PassProduct = 7, PassGiftProduct = 8;
+
+    /// <summary>
+    /// 2001 CREATE_ORDER of a pass product with Ro3Emu:Pass:FreeProducts (inferred, as OrderMonthCardAsync): the open
+    /// pass's _iPremiumItemId for enum_ProductId.BattlePass (UI_Sys_Season_PassBuyPanelCtrl._onClickBuy →
+    /// LC_BattlePassHelper.RequestBuyBattlePass), which ReconcilePassAsync spends on its premium track at once, or its
+    /// _iGiftItemId, the token a friend gift spends, for BattlePass_GIFT. A pass whose premium track is open buys no
+    /// second one, as the panel's buy button refuses (LC_BattlePassHelper.HasAdvancedPass).
+    /// </summary>
+    public async Task<int> OrderPassAsync(GameSession session, long productId)
+    {
+        if (!_freeProducts) return ErrorCodes.FeatureUnavailable;
+        var ownerScope = _loop.Owners != null ? await EnterLocalWithGateAsync(session, "activity/pass-order") : null;
+        if (ownerScope == null) await session.ActivityGate.WaitAsync();
+        try
+        {
+            if (session.NewActivities == null || session.ActivityRuntime == null) return ErrorCodes.FeatureUnavailable;
+            if (OpenPass(session) is not long activityId || PassConfig(activityId) is not { } row) return ErrorCodes.BattlePassClosed;
+            var config = new BattlePassConfig(row);
+            long item = productId switch { PassProduct => config.PremiumItemId, PassGiftProduct => config.GiftItemId, _ => 0 };
+            if (item <= 0 || _data.Row("ItemConfig", item) == null) return ErrorCodes.Parameter;
+            bool premium = session.NewActivities.ActivityInfo[activityId].ActivityParam?.BattlePass?.Premium == true;
+            if (productId == PassProduct && (premium || Owned(session, checked((int)item)) > 0)) return ErrorCodes.Parameter;
+            int result = await CommitAsync(session, session.NewActivities.Clone(), extra: [new AwardGrant(checked((int)item), 1)],
+                source: $"pass/order/{activityId}/{productId}/{Guid.NewGuid():N}");
+            if (result == 0) await ReconcilePassAsync(session);
+            return result;
+        }
+        finally { session.ActivityGate.Release(); ownerScope?.Dispose(); }
     }
 
     private static long Owned(GameSession session, int entry) => entry > 0

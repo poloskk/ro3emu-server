@@ -55,7 +55,7 @@ public sealed partial class StallsService
                 if (!ParamList("StallsMapID").Contains(runtime.SceneEntry)) return ErrorCodes.StallArea;
                 if (!float.IsFinite(s.Position.X) || !float.IsFinite(s.Position.Y) || !float.IsFinite(s.Position.Z)) return ErrorCodes.Parameter;
                 if (tx.All<StallRow>(Kind).Any(r => !r.Ended && r.Scene == runtime.SceneEntry
-                    && (r.SystemId > 0 || r.LineNumber == runtime.LineNumber) &&
+                    && (Shared(r) || r.LineNumber == runtime.LineNumber) &&
                     Distance(r, s) < Param("StallsIntervalRadius", 5))) return ErrorCodes.StallTooClose;
                 int slots = MaxGrid(s);
                 if (req.Itembase.Count == 0) return ErrorCodes.StallItemMissing;
@@ -215,7 +215,7 @@ public sealed partial class StallsService
             if (!Active(row)) return ErrorCodes.StallMissing;
             if (row!.Owner == s.Role!.Id) return ErrorCodes.TradeRequest;
             // Remote links may be browsed; purchase requires the displayed map/line and BoothRange (inferred).
-            if (s.SceneLoading || s.SceneEntry != row.Scene || (row.SystemId == 0 && s.LineNumber != row.LineNumber)
+            if (s.SceneLoading || s.SceneEntry != row.Scene || (!Shared(row) && s.LineNumber != row.LineNumber)
                 || Distance(row, s) > Param("BoothRange", 5)) return ErrorCodes.StallDistance;
             var offer = row.Stock.FirstOrDefault(i => i.Id == req.StallsItemID);
             if (offer == null) return ErrorCodes.StallItemMissing;
@@ -299,12 +299,12 @@ public sealed partial class StallsService
             if (req.StallsID < 0 || req.SystemStallID < 0 || (req.StallsID == 0) == (req.SystemStallID == 0)) return ErrorCodes.Parameter;
             row = tx.Get<StallRow>(Kind, req.SystemStallID > 0 ? SystemKey(req.SystemStallID) : PlayerKey(req.StallsID));
             return !Active(row) ? ErrorCodes.StallMissing
-                : req.SceneEntryID != row!.Scene || (row.SystemId == 0 && req.SceneLineNum != row.LineNumber)
-                  || (row.SystemId > 0 && req.SceneLineNum != s.LineNumber) ? ErrorCodes.StallMissing : 0;
+                : req.SceneEntryID != row!.Scene || (!Shared(row) && req.SceneLineNum != row.LineNumber)
+                  || (Shared(row) && req.SceneLineNum != s.LineNumber) ? ErrorCodes.StallMissing : 0;
         });
         if (code == 0) { s.ViewedStall = row!.Owner; s.ViewedSystemStall = row.SystemId; }
         await s.SendGameAsync(View, new PlayerStallsSyncBuyerStallsInfoResp
-        { Result = code, Info = code == 0 ? BuyerView(row!, row!.SystemId > 0 ? s.LineNumber : 0) : null });
+        { Result = code, Info = code == 0 ? BuyerView(row!, Shared(row!) ? s.LineNumber : 0) : null });
     }
 
     private void Close(MarketTransaction tx, StallRow row, int mail)

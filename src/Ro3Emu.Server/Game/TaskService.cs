@@ -554,7 +554,7 @@ public sealed partial class TaskService
     {
         if (settled && _roles.HasTaskFollowup(session.Role!.Id))
             await _roles.SaveSettledTasksAsync(session.Role.Id, session.Tasks!.ToByteArray(), JsonSerializer.SerializeToUtf8Bytes(session.TaskRuntime));
-        else Save(session);
+        else await SaveAsync(session);
         if (!session.DeferTaskSync)
         {
             await SyncTasksAsync(session);
@@ -719,6 +719,17 @@ public sealed partial class TaskService
         {
             _roles.SaveTasks(role.Id, session.Tasks.ToByteArray());
             _roles.SaveTaskRuntime(role.Id, JsonSerializer.SerializeToUtf8Bytes(session.TaskRuntime));
+        }
+    }
+
+    /// <summary>Save's commits awaited, not waited on: the flush runs for every online role at 05:00.</summary>
+    private async Task SaveAsync(GameSession session)
+    {
+        if (session.Role is { } role && session.Tasks != null)
+        {
+            byte[] tasks = session.Tasks.ToByteArray(), runtime = JsonSerializer.SerializeToUtf8Bytes(session.TaskRuntime);
+            await _roles.SaveTasksAsync(role.Id, tasks);
+            await _roles.SaveTaskRuntimeAsync(role.Id, runtime);
         }
     }
 

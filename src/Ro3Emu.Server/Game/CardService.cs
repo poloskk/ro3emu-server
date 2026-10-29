@@ -742,7 +742,9 @@ public sealed partial class CardService
         if (!changed) return;
         SaveLibrary(session);
         var attachment = session.Attachment;
-        _loop.TrackLegacyDetached("card library sync", () =>
+        // Only a send of the library just saved: a runtime intent, not a realm scope (after every kill of every
+        // hunter it held the whole realm, and keyed work queued behind it).
+        _loop.TrackRuntimeDetached("card library sync", () =>
             attachment?.Cancelled == true || !ReferenceEquals(session.Attachment, attachment)
                 ? Task.CompletedTask : CharacterService.SyncAsync(session, LibrarySync, session.Library.Clone()));
     }
@@ -781,7 +783,7 @@ public sealed partial class CardService
             {
                 session.Library = next;
                 if (attachment?.Cancelled != true && ReferenceEquals(session.Attachment, attachment))
-                    _loop.TrackLegacyDetached("card library sync", () =>
+                    _loop.TrackRuntimeDetached("card library sync", () =>
                         attachment?.Cancelled == true || !ReferenceEquals(session.Attachment, attachment)
                             ? Task.CompletedTask : CharacterService.SyncAsync(session, LibrarySync, session.Library!.Clone()));
             });

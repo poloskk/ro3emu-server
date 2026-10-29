@@ -30,7 +30,7 @@ public sealed class RoleSystems(Maps.World world, ChatService chat, CharacterSer
         session.NewActivities = null;
         session.DailyReady = false;
         afk.Load(session);
-        daily.Load(session);
+        await daily.LoadAsync(session);
         await emblems.LoadAsync(session);
         talents.Load(session);
         seasonRefine.Load(session);
@@ -167,7 +167,7 @@ public sealed class RoleSystems(Maps.World world, ChatService chat, CharacterSer
 
     /// <summary>The shared keys the leave steps write: the own guild (offline publication) and the timed battle.</summary>
     internal Ownership.ReservationKey[] LeaveKeys(GameSession session) =>
-        [.. guilds.OwnGuildKeys(session), .. timedBattles.CleanupKeys(session)];
+        [.. guilds.OwnMemberKeys(session), .. timedBattles.CleanupKeys(session)];
 
     internal async Task MovedAsync(GameSession session, WalkReq walk)
     {

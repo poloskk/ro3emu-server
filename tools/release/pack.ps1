@@ -1,5 +1,5 @@
 # Builds the two release archives:
-#   dist/RO3Emu-win-x64.zip               RO3Emu.exe + the self-contained server + the client hooks/loc DLLs + README
+#   dist/RO3Emu-win-x64.zip               RO3Emu.exe, RO3EmuPlay.exe (its window) + the self-contained server + the client hooks/loc DLLs + README
 #   dist/RO3Emu-server-linux-x64.tar.gz   the self-contained server + RO3Emu (export/install) + server.sh + README
 # Nothing from the game goes in: the archives are checked against an allowlist and the DLLs' embedded resources are
 # checked too, and the build fails if a client DLL, Lua, config JSON or exported data would ship.
@@ -62,16 +62,21 @@ if ($UsePrebuiltClientDlls) {
 }
 
 # 2. Publish: self-contained single files, so players and hosts need no .NET.
-function Publish([string]$project, [string]$rid, [string]$out) {
+function Publish([string]$project, [string]$rid, [string]$out, [string[]]$extra = @()) {
     # No IIS web.config and no static web assets manifest: the server is run directly.
-    Run dotnet @('publish', (Join-Path $root $project), '-c', 'Release', '-r', $rid, '--self-contained', '-nologo', '-v', 'q',
+    Run dotnet (@('publish', (Join-Path $root $project), '-c', 'Release', '-r', $rid, '--self-contained', '-nologo', '-v', 'q',
         '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true', '-p:DebugType=embedded', "-p:Version=$Version",
-        '-p:IsTransformWebConfigDisabled=true', '-p:StaticWebAssetsEnabled=false', '-o', $out)
+        '-p:IsTransformWebConfigDisabled=true', '-p:StaticWebAssetsEnabled=false', '-o', $out) + $extra)
     Get-ChildItem $out -Filter '*.pdb' | Remove-Item
 }
 $win = Join-Path $work 'win\RO3Emu'
 Publish 'src\Ro3Emu.Setup' 'win-x64' $win
+# The launcher window, without the art a local build may embed from the packer's own game (client files).
+Publish 'src\Ro3Emu.Play' 'win-x64' $win '-p:LauncherArt=false'
+Get-ChildItem $win -Filter '*.xml' | Remove-Item; Remove-Item (Join-Path $win 'RO3Emu.runtimeconfig.json') -ErrorAction SilentlyContinue
 Publish 'src\Ro3Emu.Server' 'win-x64' (Join-Path $win 'server')
+Publish 'src\Ro3Emu.Population' 'win-x64' (Join-Path $win 'population')
+Get-ChildItem (Join-Path $win 'population') -Filter 'appsettings*.json' | Remove-Item
 New-Item -ItemType Directory (Join-Path $win 'client') | Out-Null
 Copy-Item (Join-Path $clientDlls '*.dll') (Join-Path $win 'client')
 Copy-Item (Join-Path $PSScriptRoot 'README-windows.txt') (Join-Path $win 'README.txt')
@@ -79,14 +84,17 @@ Copy-Item (Join-Path $PSScriptRoot 'README-windows.txt') (Join-Path $win 'README
 $linux = Join-Path $work 'linux\RO3Emu-server'
 Publish 'src\Ro3Emu.Setup' 'linux-x64' $linux
 Publish 'src\Ro3Emu.Server' 'linux-x64' (Join-Path $linux 'server')
+Publish 'src\Ro3Emu.Population' 'linux-x64' (Join-Path $linux 'population')
+Get-ChildItem (Join-Path $linux 'population') -Filter 'appsettings*.json' | Remove-Item
 Copy-Item (Join-Path $PSScriptRoot 'server.sh') $linux
 Copy-Item (Join-Path $PSScriptRoot 'README-linux.txt') (Join-Path $linux 'README.txt')
 
 # 3. Nothing from the game: exactly these files, and the DLLs carry only our own resources.
 $allowed = @{
-    win = @('RO3Emu.exe', 'README.txt', 'server/Ro3Emu.Server.exe', 'server/appsettings.json', 'server/appsettings.Development.json',
-        'client/Ro3Emu.ClientHooks.dll', 'client/Ro3Emu.Loc.dll')
-    linux = @('RO3Emu', 'README.txt', 'server.sh', 'server/Ro3Emu.Server', 'server/appsettings.json', 'server/appsettings.Development.json')
+    win = @('RO3Emu.exe', 'RO3EmuPlay.exe', 'README.txt', 'server/Ro3Emu.Server.exe', 'server/appsettings.json', 'server/appsettings.Development.json',
+        'client/Ro3Emu.ClientHooks.dll', 'client/Ro3Emu.Loc.dll', 'population/Ro3Emu.Population.exe')
+    linux = @('RO3Emu', 'README.txt', 'server.sh', 'server/Ro3Emu.Server', 'server/appsettings.json', 'server/appsettings.Development.json',
+        'population/Ro3Emu.Population')
 }
 $forbidden = '(?i)(Assembly-CSharp|UnityEngine|Unity\.TextMeshPro|Happyengine|Phonest|HUD\.dll|xlua|\.lua|\.luac|\.bytes$|\.bundle$|msgtable|loc_en|loc_sids|\.db$|\.pem$|MapResource|sceneeditor|_dynamicmapdata)'
 function Check-Files([string]$dir, [string[]]$expected) {

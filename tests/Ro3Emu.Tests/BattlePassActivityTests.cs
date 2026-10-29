@@ -36,6 +36,7 @@ public sealed class BattlePassActivityTests : IAsyncLifetime
             o.DataDir = _dataDir; o.GameDataDir = Path.Combine(RepoRoot(), "data");
             o.HttpPort = httpPort; o.MicroGatePort = microPort; o.GameGatePort = gamePort;
             o.PlayBook = 101; o.SeasonStart = "2026-10-05";
+            o.Pass.FreeProducts = true; // only 2001 CREATE_ORDER reads it
         }, _clock);
         await _app.StartAsync();
         _http = $"http://127.0.0.1:{httpPort}";
@@ -212,5 +213,57 @@ public sealed class BattlePassActivityTests : IAsyncLifetime
         _clock.AdvanceDays(30);
         await Reconcile(again);
         Assert.Equal(ErrorCodes.MonthCardExpired, (await Common(again, claim)).Result);
+    }
+
+    [ClientDataFact]
+    public async Task QuickBuyDeliversEveryMonthlyPassUntilTheStockpilingLimit()
+    {
+        await using var alice = await InWorld("Alice");
+        await Gm(alice, "!lvl 20");
+        await Reconcile(alice);
+        long crystals = Session(alice).Progress!.Currency.GetValueOrDefault(3);
+        for (int bought = 1; bought <= 4; bought++)
+        {
+            var order = await Order(alice, 6); // PublicParamConfig.MonthCardAllBuyProductConfigID
+            Assert.Equal(0, order.Result);
+            Assert.Equal("{}", order.OrderData); // no transaction_url: no payment page opens
+            var month = Session(alice).NewActivities!.ActivityInfo[199].ActivityParam.MonthCard;
+            Assert.Equal(1 + 30 * bought, month.Infos[1001].LastDays);
+            Assert.Equal(1 + 30 * bought, month.Infos[1002].LastDays);
+            // Each month bought brings the cards' _iBuyAward: 500 + 1000 Sacred Relic Crystals (AwardConfig 100199004/5).
+            Assert.Equal(crystals + 1500 * bought, Session(alice).Progress!.Currency.GetValueOrDefault(3));
+        }
+        // A fifth month would pass MonthCardConfig._iDayLimit 143.
+        Assert.Equal(ErrorCodes.Parameter, (await Order(alice, 6)).Result);
+        Assert.Equal(ErrorCodes.Parameter, (await Order(alice, 4)).Result);
+        Assert.Equal(ErrorCodes.FeatureUnavailable, (await Order(alice, 6, chargeType: 1)).Result);
+    }
+
+    [ClientDataFact]
+    public async Task ThePassBuyOpensThePremiumTrackOnceAndTheGiftBuyDeliversItsToken()
+    {
+        await using var alice = await InWorld("Alice");
+        await Gm(alice, "!lvl 99");
+        await Reconcile(alice);
+        var order = await Order(alice, NewActivityService.PassProduct);
+        Assert.Equal(0, order.Result);
+        Assert.Equal("{}", order.OrderData);
+        var infos = Session(alice).NewActivities!.ActivityInfo;
+        long pass = Assert.Single(new long[] { 200, 201 }, id => infos[id].ActivityParam.BattlePass.Premium);
+        Assert.Equal(0, Session(alice).Progress!.Currency.GetValueOrDefault(703)); // spent on the premium track
+        var again = await Order(alice, NewActivityService.PassProduct);
+        Assert.Equal(ErrorCodes.Parameter, again.Result);
+        Assert.NotEmpty(again.ErrMsg);
+
+        Assert.Equal(0, (await Order(alice, NewActivityService.PassGiftProduct)).Result);
+        var session = Session(alice);
+        Assert.Equal(1, session.Progress!.Currency.GetValueOrDefault(1020001)
+            + session.Items.Where(i => i.Entry == 1020001).Sum(i => (long)i.Stack));
+    }
+
+    private static async Task<CreateOrderResp> Order(BotClient bot, long product, long chargeType = 2)
+    {
+        await bot.SendGameAsync(2001, new CreateOrderReq { ChargeType = chargeType, ChargeId = product });
+        return await Next(bot, 2001, CreateOrderResp.Parser);
     }
 }

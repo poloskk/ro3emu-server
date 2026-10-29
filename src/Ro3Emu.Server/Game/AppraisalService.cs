@@ -12,6 +12,8 @@ namespace Ro3Emu.Server.Game;
 public sealed class AppraisalService(GameData data, CharacterService character, FunctionService functions, RoleStore roles, ILogger<AppraisalService> log)
 {
     public const uint Appraise = 31401;
+    /// <summary>The quest whose delivery opens function 7 (FunctionConfig _kOpenCondition 2000004: [4004, 10103020]).</summary>
+    public const long OpenQuest = 10103020;
 
     /// <summary>After a committed appraisal and its reply: the appraised instances (achievements 302006/302008).
     /// Listeners must not take the character lock synchronously (it is held); they post their work.</summary>

@@ -137,6 +137,21 @@ public sealed class SkillGrowthTests : IAsyncLifetime
         Assert.Equal(10000, saved.SkillAssignPlans.All.Value[0].ManualLoadSkill[2].SkillId);
     }
 
+    /// <summary>The skill build panel sends a free skill it left untouched (12110, _iInitialLevel 1) as 0: the build
+    /// applies and the skill keeps its free level, its prerequisite (12002) still at 0.</summary>
+    [ClientDataFact]
+    public async Task ABuildWithAFreeSkillAtZeroApplies()
+    {
+        await using var alice = await InWorld("Alice");
+        await Next(alice, SkillService.SkillDataSync, DBSkillDataIncrement.Parser);
+        await Gm("alice", "!job 2200");
+        await Next(alice, SkillService.SkillDataSync, DBSkillDataIncrement.Parser, m => !m.SyncAllMark);
+        var build = new SkillGrowthSkillPlanUpdateReq { Plan = 0 };
+        build.LevelUpList[12110] = new SkillData { SkillId = 12110, SkillLevel = 0 };
+        await alice.SendGameAsync(SkillService.PlanUpdate, build);
+        Assert.Equal(0, (await Next(alice, SkillService.PlanUpdate, SkillGrowthSkillPlanUpdateResp.Parser)).Result);
+    }
+
     [ClientDataFact]
     public async Task AllocationAndDependentRefundAreAtomic()
     {

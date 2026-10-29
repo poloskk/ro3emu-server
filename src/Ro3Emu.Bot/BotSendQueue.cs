@@ -1,6 +1,6 @@
 using System.Threading.Channels;
 
-namespace Ro3Emu.LoadTest;
+namespace Ro3Emu.Bot;
 
 /// <summary>One bounded, serialized sender per bot. A stalled send fails within its deadline and closes the bot.</summary>
 public sealed class BotSendQueue : IAsyncDisposable

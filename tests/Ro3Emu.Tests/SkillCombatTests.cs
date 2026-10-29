@@ -27,6 +27,7 @@ public sealed partial class SkillCombatTests : IAsyncLifetime
         {
             o.DataDir = _dataDir; o.GameDataDir = Path.Combine(RepoRoot(), "data");
             o.HttpPort = ports.Item1; o.MicroGatePort = ports.Item2; o.GameGatePort = ports.Item3;
+            o.CrystalDrops.Chance = 1; // only elite, mini-boss and MVP kills (SkillCombatTests.Crystals)
         });
         SureHitRolls.Install(_app); // lethal hits are prepared; a FLEE miss would only be noise
         await _app.StartAsync(); _http = $"http://127.0.0.1:{ports.Item1}";

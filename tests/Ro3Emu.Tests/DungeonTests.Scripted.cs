@@ -163,7 +163,20 @@ public sealed partial class DungeonTests
             "the jump lands at point 21, the top of the passage");
         await ActorsIn(alice, 0); // nothing is shown now
 
-        await WalkInto(alice, map.Regions[22]); // the bottom of the passage
+        // The live client stayed at the vortex: a walk report from there brings the teleport again.
+        bool AtTop(MovementChangeNtf m) => m.Uid == (long)alice.Self!.Uuid
+            && MonsterService.Distance(m.MovementInfo.Pos.X, m.MovementInfo.Pos.Z, top.X, top.Z) < 1;
+        await Next(alice, GameAoiSink.MovementChange, MovementChangeNtf.Parser, AtTop); // the jump's own teleport
+        await alice.SendGameAsync(MsgId.Walk, new WalkReq
+        {
+            Pos = new Vec3 { X = vortex.X + 2, Y = vortex.Y, Z = vortex.Z }, BStop = true, SpeedRate = 1,
+        });
+        await Next(alice, GameAoiSink.MovementChange, MovementChangeNtf.Parser, AtTop);
+
+        // The bottom of the passage: where the live client stopped, at the edge of the drop 1 m before region 22.
+        var edge = (X: 106.8f, Z: 621.4f);
+        Assert.False(map.Regions[22].Contains(edge.X, edge.Z));
+        await WalkTo(alice, edge.X, map.Nav!.WalkHeight(edge.X, edge.Z, map.Regions[22].Y)!.Value, edge.Z);
         var result = await Next(alice, DungeonService.Result, DungeonResNotify.Parser);
         Assert.Equal((DungeonRes)1, result.Res);
         await StoryMovesOn(alice, 10104290, 10104300);

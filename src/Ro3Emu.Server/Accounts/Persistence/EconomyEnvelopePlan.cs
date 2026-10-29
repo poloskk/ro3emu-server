@@ -224,9 +224,10 @@ internal sealed class EconomyEnvelopePlan(RoleItemPlan child, EconomyEnvelope en
     }
 
     private static Dictionary<(EconomyAsset Asset, EconomyLocation Location), EconomyHolding> Read(
-        SqliteConnection db, SqliteTransaction tx, EconomyCatalog catalog)
+        SqliteConnection db, SqliteTransaction tx, EconomyCatalog catalog, IReadOnlySet<long> roles,
+        IReadOnlySet<EconomyCompartment> compartments)
     {
-        var decoded = EconomySnapshotReader.ReadTransaction(db, tx, catalog);
+        var decoded = EconomySnapshotReader.ReadTransaction(db, tx, catalog, roles, compartments);
         if (decoded.Issues.Any(x => x.Kind is EconomyIssueKind.Corruption or EconomyIssueKind.UnknownSchema or EconomyIssueKind.Coverage))
             throw new InvalidDataException("E05d economic decoder found unclassified/corrupt stored value: " +
                 decoded.Issues.First(x => x.Kind is EconomyIssueKind.Corruption or EconomyIssueKind.UnknownSchema or EconomyIssueKind.Coverage).Detail);
@@ -238,7 +239,28 @@ internal sealed class EconomyEnvelopePlan(RoleItemPlan child, EconomyEnvelope en
     }
 
     private Dictionary<(EconomyAsset Asset, EconomyLocation Location), EconomyHolding> Read(
-        SqliteConnection db, SqliteTransaction tx) => Read(db, tx, catalog);
+        SqliteConnection db, SqliteTransaction tx) => Read(db, tx, catalog, Participants(),
+        envelope.Effects.Select(effect => effect.Compartment).ToHashSet());
+
+    /// <summary>
+    /// The roles whose holdings this operation may move: its actor, the roles its declared legs name, and the roles
+    /// its child plan writes or pins. The before/after reads cover these roles only:
+    /// reading every role and item twice per operation made each kill reward cost a scan of the whole database, and
+    /// with thousands of roles the one writer fell behind for good. A role's holdings change only through the role
+    /// writes its plan declares (RoleWrites), and an entity write outside the captured set is still refused below.
+    /// For the same reason the reads cover only the realm sections of the compartments its legs declare (markets,
+    /// auctions, guilds, territory, obligations): a kill reward does not read every stall and market record.
+    /// </summary>
+    private HashSet<long> Participants()
+    {
+        var roles = new HashSet<long> { envelope.ActorRoleId };
+        foreach (var effect in envelope.Effects)
+            if (effect.Owner.Kind == EconomyOwnerKind.Role && long.TryParse(effect.Owner.Id, NumberStyles.None, CultureInfo.InvariantCulture, out long role))
+                roles.Add(role);
+        foreach (var write in child.RoleWrites) roles.Add(write.RoleId);
+        foreach (long pin in child.RolePins) roles.Add(pin);
+        return roles;
+    }
 
     private IReadOnlyList<EconomyEffect> ResolveEffects(SqliteConnection db, SqliteTransaction tx, object?[] children)
     {

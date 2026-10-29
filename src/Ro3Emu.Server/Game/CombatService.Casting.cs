@@ -111,6 +111,12 @@ public sealed partial class CombatService
             await RefuseCastAsync(s, req, error, errorParam);
             return;
         }
+        if (owned == null && new SkillConfig(row!.Value).IsNormalAtk == 1 && Now < s.NormalAttackReadyMs
+            && (s.Attack?.Target.Uid == req.TargetId || s.SkillCast is { Cancelled: false } swing && swing.Request.TargetId == req.TargetId))
+        {
+            await DeferNormalAttackAsync(s, req);
+            return;
+        }
 
         long id = ++_sessionIds;
         var lease = s.Attachment;
@@ -146,12 +152,39 @@ public sealed partial class CombatService
             };
         }
         else s.Attack = null;
+        if (new SkillConfig(row.Value).IsNormalAtk == 1) s.NormalAttackReadyMs = Now + ChantMs(s, row.Value) + SkillMs(s, row.Value);
         if (GameData.Int(row.Value, "_iIfAutoAtk") == 2 && owned == null && playerTarget != null)
             _eventAttacks[s] = new EventAttack(playerTarget, loopSkill,
                 Now + SkillMs(s, row.Value) + ChantMs(s, row.Value) + 1,
                 s.Position.X, s.Position.Z);
         await StartCooldownAsync(s, row.Value, SkillConfig.Get(_data, request.SkillId) is { } asked ? (int)asked.Mode : null);
         await StartCastAsync(s, row.Value, req, id, owned);
+    }
+
+    /// <summary>
+    /// (inferred) A normal attack before the last swing has ended. It has no _iCD and may cancel a cast
+    /// (_bCancelCast 1), so each click used to restart the swing and repeated clicks hit at click speed. As in RO's
+    /// attack delay, the click is taken, not refused (a refusal ends the client's auto-attack): the auto-attack loop
+    /// swings at the target once the last swing's time (_iActionTime over attack speed) is up, and further clicks
+    /// meanwhile add nothing. Only a click at the target of the running swing waits: a new target (the next monster
+    /// after a kill) starts its swing as before. A target the loop cannot hold (another player) is refused as busy.
+    /// </summary>
+    private async Task DeferNormalAttackAsync(GameSession s, CastSkillReq req)
+    {
+        if (FindMonster(s.WorldScene, req.TargetId) is not { } target || !CanHitMonster(s, target))
+        {
+            await RefuseCastAsync(s, req, ErrorCodes.SkillBusy, 0);
+            return;
+        }
+        if (s.Attack is { } loop && ReferenceEquals(loop.Target, target) && loop.SkillId == req.SkillId)
+            loop.NextSwingMs = Math.Max(loop.NextSwingMs, s.NormalAttackReadyMs);
+        else s.Attack = new AttackLoop
+        {
+            Target = target, SkillId = req.SkillId, NextSwingMs = s.NormalAttackReadyMs,
+            StartX = s.Position.X, StartZ = s.Position.Z, StartedWalking = s.Walking, StartMs = Now,
+            ArrivalSpeed = s.Speed / 100f, WalkFromUtc = s.LastWalkUtc
+        };
+        await s.SendGameAsync(UseSkill, new CastSkillRsp { SessionId = ++_sessionIds, IsAutoCast = req.IsAutoCast });
     }
 
     /// <summary>Cast item cost and frozen intent share one owner receipt; HP/SP/buffs remain runtime resources.

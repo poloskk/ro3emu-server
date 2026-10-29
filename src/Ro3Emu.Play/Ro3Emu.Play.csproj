@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- RO3EmuPlay.exe: the launcher window. It runs RO3Emu.exe's own "start" flow in process (Ro3Emu.Setup, Ui.Host)
+       and shows it in a game-styled page (ui/, WebView2): the steps with progress bars, the fake players logging in,
+       the server's status, Play and Stop. RO3Emu.exe stays the console tool for every other command. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>RO3EmuPlay</AssemblyName>
+    <RootNamespace>Ro3Emu.Play</RootNamespace>
+    <Version>1.0.0</Version>
+    <Product>RO3Emu</Product>
+    <!-- The game's logo as the icon and its login art as the page's, made from the player's own game
+         (tools/release/launcher-art.ps1): never in git, and never in a release (pack.ps1 sets LauncherArt=false). -->
+    <LauncherArt Condition="'$(LauncherArt)' == ''">true</LauncherArt>
+    <ApplicationIcon Condition="'$(LauncherArt)' == 'true' And Exists('ro3.ico')">ro3.ico</ApplicationIcon>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <DebugType>embedded</DebugType>
+    <!-- Published as one file (WPF and WebView2 make it large): compressed, about half the size. -->
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <!-- Ro3Emu.Setup is an executable too (RO3Emu.exe); both are published self-contained, side by side. -->
+    <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" />
+    <ProjectReference Include="..\Ro3Emu.Setup\Ro3Emu.Setup.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The page, served to WebView2 from the exe. -->
+    <EmbeddedResource Include="ui\**\*" LogicalName="ui/$([System.String]::Copy('%(RecursiveDir)').Replace('\', '/'))%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(LauncherArt)' == 'true'">
+    <!-- art/ only when it was made (see above); without it the page draws its sky in CSS. -->
+    <EmbeddedResource Include="art\**\*" LogicalName="ui/art/%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>

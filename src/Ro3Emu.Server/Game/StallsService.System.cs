@@ -150,8 +150,9 @@ public sealed partial class StallsService
                         row.TaxRate = meta.CurTax.Key;
                         Save(tx, row, meta); changed.Add(row);
                     }
-                    else if (_activeLines.Contains(Ro3Emu.Server.Maps.RuntimeMapKey.Public(row.Scene, row.LineNumber))
-                        && !_actors.ContainsKey((row.Key, row.LineNumber))) restore.Add(row);
+                    // A line opened since (a shared stall's second line too) gets its projection here.
+                    else if (Lines(row).Any(line => _activeLines.Contains(line) && !_actors.ContainsKey((row.Key, line.LineNumber))))
+                        restore.Add(row);
                 }
             }
             PopulateSystems(tx, sceneEntries, changed);

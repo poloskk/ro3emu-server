@@ -1,0 +1,149 @@
+/* RO3Emu launcher: the login screen's art behind cream-and-gold panels in the game's own style.
+   Without art/ (made from the player's game by tools/release/launcher-art.ps1) the sky is drawn in CSS. */
+
+:root{
+  --ink:#3a2f1e; --ink-2:#5f4d31; --muted:#8a7756; --gold:#c9a25a; --gold-2:#9a7333; --gold-hi:#f3dc9e;
+  --cream:#fbf4e2; --cream-2:#efe2c0; --blue:#2f5fb3; --blue-2:#1d3f80; --green:#5f9b3c; --red:#c4503c;
+  --caps:"Palatino Linotype",Palatino,Georgia,serif;
+  --body:"Segoe UI","Segoe UI Variable",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;overflow:hidden}
+body{color:var(--ink);font:14px/1.45 var(--body);background:#1d2033;user-select:none;-webkit-user-select:none;
+  cursor:url("game/cursor.cur"),default;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit;cursor:url("game/cursor.cur"),default}
+button{background:none;border:0;padding:0}
+h2,h3{margin:0;font-weight:600}
+p{margin:0}
+ul,ol{list-style:none;margin:0;padding:0}
+hr{border:0;height:1px;margin:12px 0;background:linear-gradient(90deg,transparent,rgba(160,125,60,.55),transparent)}
+[hidden]{display:none!important}
+.gem{color:var(--gold);font-size:12px;margin-right:9px;vertical-align:2px}
+
+/* ---------- the world behind ---------- */
+.backdrop{position:fixed;inset:0;background:
+  url("art/background.jpg") center/cover no-repeat,
+  radial-gradient(ellipse at 60% 30%,#b9a7ff 0%,#6d6fd6 35%,#2d3a7a 70%,#1d2033 100%)}
+.shade{position:fixed;inset:0;pointer-events:none;background:
+  linear-gradient(90deg,rgba(14,16,34,.62) 0%,rgba(14,16,34,.18) 38%,rgba(14,16,34,0) 60%),
+  linear-gradient(0deg,rgba(14,16,34,.78) 0%,rgba(14,16,34,.25) 32%,rgba(14,16,34,0) 55%)}
+
+/* ---------- title strip ---------- */
+.topbar{position:fixed;top:0;left:0;right:0;height:132px;display:flex;align-items:flex-start;justify-content:space-between;padding:10px 14px 0 22px;z-index:5}
+.brand{display:flex;align-items:center;gap:6px;pointer-events:none}
+.logo{width:150px;height:150px;object-fit:contain;margin-top:-8px;filter:drop-shadow(0 6px 18px rgba(0,0,0,.45))}
+.logo.missing{display:none}
+.brand-text{display:flex;flex-direction:column;margin-top:-6px}
+.title{font:700 34px/1 var(--caps);letter-spacing:.06em;color:#fff;text-shadow:0 2px 0 #3b2f6e,0 0 18px rgba(140,170,255,.8)}
+.logo:not(.missing)+.brand-text .title{display:none}
+.subtitle{margin-top:4px;font:600 15px/1 var(--caps);letter-spacing:.42em;text-transform:uppercase;color:var(--gold-hi);
+  text-shadow:0 1px 0 #3b2a0e,0 0 10px rgba(0,0,0,.6)}
+.tools{display:flex;align-items:center;gap:4px;margin-top:2px}
+.tool{width:38px;height:34px;display:grid;place-items:center;border-radius:6px;background:rgba(20,22,44,.35);backdrop-filter:blur(3px)}
+.tool svg{width:18px;height:18px;fill:none;stroke:#f4ead2;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.tool:hover{background:rgba(255,246,222,.22)}
+.tool.close:hover{background:var(--red)}
+.sep{width:1px;height:24px;background:rgba(255,240,210,.35);margin:0 6px}
+
+/* ---------- cream panels with the gold double rule ---------- */
+.panel,.drawer,.dialog{position:fixed;z-index:3;background:linear-gradient(180deg,rgba(251,244,226,.95),rgba(239,226,192,.95));border-radius:8px;
+  box-shadow:0 0 0 1px rgba(150,115,55,.7),0 0 0 4px rgba(250,240,215,.55),0 0 0 5px rgba(150,115,55,.55),0 18px 40px rgba(10,8,30,.55)}
+.panel::before,.drawer::before,.dialog::before{content:"";position:absolute;inset:6px;border:1px solid rgba(170,135,70,.35);border-radius:4px;pointer-events:none}
+.panel h2,.drawer h2{font:600 17px/1 var(--caps);letter-spacing:.32em;text-transform:uppercase;color:var(--ink);margin-bottom:14px}
+
+.realm{left:26px;top:170px;width:300px;padding:22px 22px 18px}
+.row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:6px 0}
+.row.small{font-size:12.5px;margin:3px 0;color:var(--ink-2)}
+.label{color:var(--ink-2)}
+.value{font-weight:600;display:inline-flex;align-items:center;gap:7px}
+.value.big{font:700 22px/1 var(--caps);color:var(--blue-2)}
+.dot{width:9px;height:9px;border-radius:50%;background:#b9a988}
+.dot.on{background:var(--green);box-shadow:0 0 0 3px rgba(95,155,60,.22)}
+.dot.busy{background:#d9902a;box-shadow:0 0 0 3px rgba(217,144,42,.22)}
+.meter{height:7px;border-radius:4px;background:rgba(120,95,45,.18);overflow:hidden;margin:2px 0 4px}
+.meter>div{height:100%;width:0;background:linear-gradient(90deg,#8fbf5a,#5f9b3c);transition:width .6s}
+.meter.blue>div{background:linear-gradient(90deg,#6f9cf0,var(--blue))}
+.rates{display:flex;justify-content:space-between;text-align:center}
+.rates div{flex:1;display:flex;flex-direction:column}
+.rates b{font:700 20px/1.1 var(--caps);color:var(--gold-2)}
+.rates span{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+
+/* ---------- the journey: steps, bar, last line ---------- */
+.journey{left:26px;right:300px;bottom:26px;padding:18px 24px 14px}
+.steps{display:flex;justify-content:space-between;margin-bottom:12px}
+.steps li{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;letter-spacing:.04em}
+.steps li+li::before{content:"›";margin-right:10px;color:rgba(150,115,55,.6);font-size:18px}
+.hex{width:26px;height:26px;display:grid;place-items:center;font:700 12px/1 var(--caps);color:#fff;
+  clip-path:polygon(25% 3%,75% 3%,100% 50%,75% 97%,25% 97%,0 50%);background:#b9a988}
+.steps li.active{color:var(--ink)}
+.steps li.active .hex{background:linear-gradient(180deg,#6f9cf0,var(--blue));animation:pulse 1.6s ease-in-out infinite}
+.steps li.done .hex{background:linear-gradient(180deg,#e2c27a,var(--gold-2))}
+.steps li.done{color:var(--ink-2)}
+@keyframes pulse{50%{filter:brightness(1.35)}}
+.status{display:flex;justify-content:space-between;font-weight:600}
+.status-pct{color:var(--blue-2)}
+.bar{position:relative;height:12px;margin:7px 0 6px;border-radius:7px;background:rgba(120,95,45,.2);overflow:hidden;
+  box-shadow:inset 0 1px 2px rgba(60,40,10,.35)}
+.fill{height:100%;width:0;border-radius:7px;background:linear-gradient(90deg,#7fb0ff,var(--blue) 60%,#7fb0ff);background-size:200% 100%;
+  transition:width .4s;animation:flow 2.4s linear infinite}
+.bar.indeterminate .fill{width:35%!important;animation:sweep 1.4s ease-in-out infinite}
+.bar.done .fill{background:linear-gradient(90deg,#e2c27a,var(--gold-2));animation:none}
+.bar.error .fill{background:var(--red);animation:none}
+@keyframes flow{to{background-position:-200% 0}}
+@keyframes sweep{0%{transform:translateX(-110%)}100%{transform:translateX(300%)}}
+.detail{font-size:12.5px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:18px}
+.detail.warn{color:#9a5b12}
+.detail.error{color:var(--red);white-space:normal}
+
+/* ---------- the play button: a gold banner, as the game's ---------- */
+.actions{position:fixed;right:26px;bottom:26px;width:250px;display:flex;flex-direction:column;gap:10px;z-index:3}
+.play{position:relative;height:96px;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  font:700 28px/1 var(--caps);letter-spacing:.14em;text-transform:uppercase;color:#4a330c;text-shadow:0 1px 0 rgba(255,245,210,.8);
+  background:linear-gradient(180deg,#fff0bf 0%,#f2cd6c 38%,#d9a43c 62%,#e9bd5c 100%);
+  box-shadow:0 0 0 1px #8a6421,0 0 0 4px rgba(255,236,180,.55),0 0 0 5px #8a6421,0 12px 30px rgba(10,8,30,.55),inset 0 2px 0 rgba(255,255,255,.7);
+  transition:filter .15s,transform .1s}
+.play small{font:600 11.5px/1.2 var(--body);letter-spacing:.06em;text-transform:none;color:#6a4b15}
+.play:not(:disabled):hover{filter:brightness(1.08) saturate(1.1)}
+.play:not(:disabled):active{transform:translateY(1px)}
+.play:disabled{filter:grayscale(.75) brightness(.92);color:#6d6250}
+.play.ready{animation:glow 2.2s ease-in-out infinite}
+@keyframes glow{50%{box-shadow:0 0 0 1px #8a6421,0 0 0 4px rgba(255,236,180,.8),0 0 0 5px #8a6421,0 0 34px rgba(255,214,120,.85),inset 0 2px 0 rgba(255,255,255,.7)}}
+.stop,.cream{height:40px;border-radius:7px;font-weight:600;letter-spacing:.06em;color:var(--ink);
+  background:linear-gradient(180deg,#fffaf0,#eadcb9);box-shadow:0 0 0 1px rgba(150,115,55,.75),0 6px 16px rgba(10,8,30,.35)}
+.stop:not(:disabled):hover,.cream:hover{filter:brightness(1.05)}
+.stop:disabled{opacity:.55}
+.cream.ghost{background:transparent;box-shadow:0 0 0 1px rgba(150,115,55,.55)}
+
+/* ---------- drawers ---------- */
+.drawer{right:26px;top:96px;width:380px;max-height:calc(100% - 250px);padding:22px;overflow:auto;z-index:6}
+.drawer label{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:10px 0;color:var(--ink-2)}
+.drawer input,.drawer select{width:190px;height:32px;padding:0 9px;border-radius:5px;border:1px solid rgba(150,115,55,.6);
+  background:#fffaf0;color:var(--ink);outline:none}
+.drawer input:focus,.drawer select:focus{border-color:var(--blue)}
+.drawer-buttons{display:flex;gap:10px;margin-top:14px}
+.drawer-buttons button{flex:1}
+.hint{font-size:12.5px;color:var(--muted)}
+.links{display:flex;gap:16px}
+.link{color:var(--blue-2);font-weight:600;text-decoration:underline;text-underline-offset:3px}
+.version{margin-top:10px;font-size:11.5px;color:var(--muted)}
+.log{width:620px}
+.log ul{font:12px/1.5 Consolas,"Cascadia Mono",monospace;max-height:380px;overflow:auto;background:rgba(255,250,236,.7);
+  border:1px solid rgba(150,115,55,.35);border-radius:5px;padding:8px 10px;user-select:text;-webkit-user-select:text}
+.log li.step{color:var(--blue-2);font-weight:700;margin-top:6px}
+.log li.ok{color:#3f6f22}
+.log li.warn{color:#9a5b12}
+.log li.error{color:var(--red);font-weight:700}
+
+/* ---------- questions and the closing curtain ---------- */
+.modal,.curtain{position:fixed;inset:0;z-index:9;display:grid;place-items:center;background:rgba(10,10,30,.55);backdrop-filter:blur(2px)}
+.dialog{position:relative;width:480px;padding:26px 26px 20px}
+.dialog h3{font:600 17px/1.2 var(--caps);letter-spacing:.2em;text-transform:uppercase;margin-bottom:10px}
+.dialog p{white-space:pre-wrap;color:var(--ink-2)}
+.dialog input{width:100%;height:34px;margin-top:14px;padding:0 10px;border-radius:5px;border:1px solid rgba(150,115,55,.6);background:#fffaf0;outline:none}
+.dialog-buttons{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+.dialog-buttons button{min-width:110px;padding:0 16px}
+.dialog-buttons .primary{background:linear-gradient(180deg,#fff0bf,#e2b452);box-shadow:0 0 0 1px #8a6421,0 6px 16px rgba(10,8,30,.35)}
+.curtain p{margin-top:16px;color:#fff;font:600 16px/1.4 var(--caps);letter-spacing:.06em;text-align:center;text-shadow:0 2px 8px rgba(0,0,0,.6)}
+.curtain>div{display:flex;flex-direction:column;align-items:center}
+.spinner{width:46px;height:46px;border-radius:50%;border:4px solid rgba(255,236,180,.3);border-top-color:var(--gold-hi);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}

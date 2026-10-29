@@ -2,6 +2,13 @@ namespace Ro3Emu.Server;
 
 public sealed class ServerOptions
 {
+    /// <summary>
+    /// A test aid, 0 (off) by default: the realm's clock (TimeProvider) runs this many minutes ahead, so a timed reset
+    /// such as the 05:00 daily one can be rehearsed on a copy of a data dir. Code that reads the system clock directly
+    /// does not follow it; never use it on a realm that is played.
+    /// </summary>
+    public double ClockOffsetMinutes { get; set; }
+
     /// <summary>Address the client is told to connect to (server list gate addresses). Must be an IP literal.</summary>
     public string PublicHost { get; set; } = "127.0.0.1";
 
@@ -61,6 +68,13 @@ public sealed class ServerOptions
     /// </summary>
     public int StallNameMaxLength { get; set; } = 24;
 
+    /// <summary>A player stall shows and sells on every line of its map, as a system stall does (inferred, not original:
+    /// a realm policy; the original kept it on its opening line). Off by default (StallsService.Shared).</summary>
+    public bool StallsOnAllLines { get; set; }
+
+    /// <summary>Equipment of one quality sold in player stalls for crystals (StallsService.CrystalGear; off by default).</summary>
+    public CrystalGearOptions CrystalGear { get; set; } = new();
+
     /// <summary>
     /// The live season playbook (SeasonService). 101 is the only one this client has season content for; a value
     /// set in game with "!season" overrides it.
@@ -78,6 +92,16 @@ public sealed class ServerOptions
 
     /// <summary>Battle pass policy: the premium track is free for now.</summary>
     public PassOptions Pass { get; set; } = new();
+
+    /// <summary>Monster kill EXP as a multiple of the original's (inferred, not original: a realm policy; 1 = the client's tables).</summary>
+    public double ExpRate { get; set; } = 1;
+
+    /// <summary>Sacred Relic Crystals from elite, mini-boss and MVP kills (inferred, not original: a realm policy; off by default).</summary>
+    public CrystalDropOptions CrystalDrops { get; set; } = new();
+
+    /// <summary>Field Bonus Time drained per second of eligible play (inferred, not original: a realm policy; 1 = the
+    /// original, 0.25 lasts four times as long, 0 = unlimited: the bank stays full). WildAfkService.ConsumeUntil.</summary>
+    public double BonusTimeDrain { get; set; } = 1;
 
     /// <summary>
     /// Accounts allowed to use GM commands in game ("!" lines in chat, the client's GM panel, 1031/1034). Empty:
@@ -292,7 +316,44 @@ public sealed class VoiceOptions
     public int IdleTimeoutSeconds { get; set; } = 30;
 }
 
-/// <summary>Both off by default so the tests keep the original's pass; a realm turns them on (docs/systems/activities-battlepass-monthcard.md).</summary>
+/// <summary>
+/// A realm's extra kill drop (RewardService): a kill of a monster whose NPCConfig _iNPCSubType is enum_MonsterType
+/// MT_Elite (2) or MT_MINI (3) drops <see cref="Item"/> (ItemConfig 3, "Sacred Relic Crystal", the currency
+/// RechargeConfig sells) <see cref="Min"/>-<see cref="Max"/> with <see cref="Chance"/>, an MT_MVP (4)
+/// <see cref="MvpMin"/>-<see cref="MvpMax"/>. Chance 0 (the default) is off.
+/// </summary>
+public sealed class CrystalDropOptions
+{
+    public double Chance { get; set; }
+    public int Item { get; set; } = 3;
+    public int Min { get; set; } = 1;
+    public int Max { get; set; } = 3;
+    public int MvpMin { get; set; } = 10;
+    public int MvpMax { get; set; } = 20;
+}
+
+/// <summary>
+/// A realm policy, not original (inferred): equipment (ItemConfig _iType 5) of <see cref="Quality"/> (6, red) may be
+/// listed in a player stall or the trade exchange and sold for <see cref="Currency"/> (3, Sacred Relic Crystal) only,
+/// although TradeConfig keeps it off stalls (_iTrade 1) and prices it in Zeny. Its crystal price follows the item's own
+/// range (StallsService.Range, TradeService.PriceRule) on a base of TradeConfig _iBasePrice / <see cref="Rate"/>,
+/// rounded up. Rate 0 (default) is off.
+/// </summary>
+public sealed class CrystalGearOptions
+{
+    public int Quality { get; set; } = 6;
+    public int Currency { get; set; } = 3;
+    public long Rate { get; set; }
+
+    /// <summary>The item is crystal gear: equipment of <see cref="Quality"/> while the policy is on.</summary>
+    public bool Covers(Data.GameData data, long entry) => Rate > 0 && Data.Config.ItemConfig.Get(data, entry) is { } item
+        && item.Type == Game.CharacterService.ItemTypeEquip && item.Quality == Quality;
+
+    /// <summary>A crystal base price: the Zeny base / <see cref="Rate"/>, rounded up, at least 1.</summary>
+    public long Base(long zenyBase) => Math.Max(1, (zenyBase + Rate - 1) / Rate);
+}
+
+/// <summary>All off by default so the tests keep the original's pass; a realm turns them on (docs/systems/activities-battlepass-monthcard.md).</summary>
 public sealed class PassOptions
 {
     /// <summary>Every role gets the premium track and its privileges without the premium item 703.</summary>
@@ -300,6 +361,9 @@ public sealed class PassOptions
 
     /// <summary>Pass EXP from play: challenges, daily activity, monsters, dungeons, MVPs and story (NewActivityService.PassPlay).</summary>
     public bool Play { get; set; }
+
+    /// <summary>A monthly pass bought in game (2001 CREATE_ORDER) is delivered without a payment (NewActivityService.OrderMonthCardAsync).</summary>
+    public bool FreeProducts { get; set; }
 }
 
 /// <summary>

@@ -84,15 +84,15 @@ public sealed partial class DailyActivityService : IGameTicker
     internal Func<GameSession, (byte[] Bytes, Action Committed, Action Rollback)?>? PlanAfkRollover { get; set; }
 
     /// <summary>Before TaskService.Login: reconcile persisted epochs and quest rows, then 5009 will carry reset currency.</summary>
-    public void Load(GameSession session, DateTime? localNow = null)
+    public async Task LoadAsync(GameSession session, DateTime? localNow = null)
     {
         var saved = _roles.LoadDaily(session.Role!.Id);
         var state = saved == null ? new DailyState() : JsonSerializer.Deserialize<DailyState>(saved) ?? new DailyState();
         var taskBytes = _roles.LoadTasks(session.Role.Id);
         var taskInfo = taskBytes != null ? DBTaskInfo.Parser.ParseFrom(taskBytes) : new DBTaskInfo();
-        // Selection owns the realm before the first packet; this branch never awaits a writer admission.
-        RolloverAsync(session, state, taskInfo, localNow ?? _clock.GetLocalNow().DateTime,
-            synchronous: true).GetAwaiter().GetResult();
+        // The selection's reservation keeps the role's other work out while the reset commits; the commit is awaited,
+        // not waited on: the first login of a day blocked the game loop on 1500 such commits.
+        await RolloverAsync(session, state, taskInfo, localNow ?? _clock.GetLocalNow().DateTime);
     }
 
     /// <summary>
@@ -102,7 +102,7 @@ public sealed partial class DailyActivityService : IGameTicker
     /// the session's own state, so nothing is re-read from SQL. Returns the committed quests when they were reset.
     /// </summary>
     private async Task<DBTaskInfo?> RolloverAsync(GameSession session, DailyState state, DBTaskInfo taskInfo,
-        DateTime now, bool synchronous = false)
+        DateTime now)
     {
         long previousDailyEpoch = state.DailyEpoch, previousWeeklyEpoch = state.WeeklyEpoch;
         state.Claims ??= new();
@@ -171,12 +171,8 @@ public sealed partial class DailyActivityService : IGameTicker
         string currencyBytes = string.Join(',', currency.Select(c => $"{c.Key}:{c.Value}"));
         try
         {
-            if (synchronous)
-                _roles.SaveDailyReset(session.Role.Id, dailyBytes, taskBytes, currencyBytes, session.Progress,
-                    economy, afk?.Bytes);
-            else
-                await _roles.SaveDailyResetAsync(session.Role.Id, dailyBytes, taskBytes, currencyBytes,
-                    session.Progress, economy, afk?.Bytes);
+            await _roles.SaveDailyResetAsync(session.Role.Id, dailyBytes, taskBytes, currencyBytes,
+                session.Progress, economy, afk?.Bytes);
         }
         catch
         {
@@ -453,21 +449,45 @@ public sealed partial class DailyActivityService : IGameTicker
         // window refresh is posted (every session used to be posted every second: a 300-item queue burst).
         var now = _clock.GetLocalNow().DateTime;
         long daily = Boundary(now), weekly = WeekBoundary(now), seconds = ToUnix(now);
+        // At 05:00 every online role crosses at once (inferred pacing): one queued reconciliation per session and at
+        // most ResetsPerTick a second. Unguarded, 1500 roles were posted again each second while their resets
+        // waited, the loop stayed saturated for a minute and the writer refused ~1000 commits as full.
+        int posted = 0;
         foreach (var session in _sessions.All())
         {
-            if (session.Daily is not { } state || !session.DailyReady) continue;
+            if (session.Daily is not { } state || !session.DailyReady || session.DailyReconcileQueued) continue;
             if (state.DailyEpoch >= daily && state.WeeklyEpoch >= weekly
                 && seconds < session.DailyWindowRefreshAt && seconds >= session.DailyWindowSampledAt) continue;
-            _loop.PostOwned(session, () => ReconcileAsync(session));
+            if (posted++ == ResetsPerTick) break;
+            session.DailyReconcileQueued = true;
+            _loop.PostOwned(session, async () =>
+            {
+                try { await ReconcileAsync(session); }
+                finally { session.DailyReconcileQueued = false; }
+            }, discarded: () => session.DailyReconcileQueued = false);
         }
     }
 
     private TimeSpan _lastTick;
+    private const int ResetsPerTick = 50;
 
     public async Task ReconcileAsync(GameSession session, DateTime? localNow = null)
     {
         using var gate = await TaskService.LockTasksAsync(session);
         await ReconcileCoreAsync(session, localNow);
+    }
+
+    /// <summary>
+    /// The heartbeat's share: a due window refresh only. A crossed 05:00 boundary is left to <see cref="Tick"/>, which
+    /// paces the realm's resets (inferred): every heartbeat starting its own role's reset began all 1500 within 5 s,
+    /// and each reset's state change queues its lottery, quest and activity refreshes too.
+    /// </summary>
+    public async Task ReconcileWindowsAsync(GameSession session)
+    {
+        if (session.Daily is not { } state) return;
+        var now = _clock.GetLocalNow().DateTime;
+        if (state.DailyEpoch < Boundary(now) || state.WeeklyEpoch < WeekBoundary(now)) return;
+        await ReconcileAsync(session);
     }
 
     // The caller owns TaskLock; resetting or accepting a ring must not interleave with a staged quest award.

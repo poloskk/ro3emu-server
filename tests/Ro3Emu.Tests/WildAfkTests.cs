@@ -23,13 +23,16 @@ public sealed class WildAfkTests : IAsyncLifetime
     private string _http = "";
     private T Service<T>() where T : notnull => _app.Services.GetRequiredService<T>();
 
-    public async Task InitializeAsync()
+    public Task InitializeAsync() => StartAsync(null);
+
+    private async Task StartAsync(Action<ServerOptions>? configure)
     {
         var (hp, mp, gp) = TestPorts.FreePorts();
         _app = ServerHost.Create([], o =>
         {
             o.DataDir = _dataDir; o.GameDataDir = Path.Combine(RepoRoot(), "data");
             o.HttpPort = hp; o.MicroGatePort = mp; o.GameGatePort = gp;
+            configure?.Invoke(o);
         });
         Service<SeasonService>().SetPlayBook(101);
         SureHitRolls.Install(_app); // lethal hits are prepared; a FLEE miss would only be noise
@@ -322,6 +325,51 @@ public sealed class WildAfkTests : IAsyncLifetime
         Assert.Equal(0, (await Next(bot, WildAfkService.Pause, PauseHighMultiplierTimeRsp.Parser)).Result);
         await bot.SendGameAsync(WildAfkService.Pause, new PauseHighMultiplierTimeReq());
         Assert.Equal(ErrorCodes.AfkNotActive, (await Next(bot, WildAfkService.Pause, PauseHighMultiplierTimeRsp.Parser)).Result);
+    }
+
+    /// <summary>Ro3Emu:BonusTimeDrain 0.25: the ten-second grace costs the bank 2.5 s, the daily count still sees 10 s.</summary>
+    [ClientDataFact]
+    public async Task ASlowerDrainKeepsBonusTimeLongerAndCountsPlayTimeForTheDay()
+    {
+        var (left, counted, _) = await GraceWithDrainAsync(0.25);
+        Assert.Equal(3598, left);
+        Assert.Equal(10, counted);
+    }
+
+    /// <summary>Ro3Emu:BonusTimeDrain 0: the bank stays at its cap (OnHookFightTimeLimit 180 min); play still counts.</summary>
+    [ClientDataFact]
+    public async Task NoDrainKeepsBonusTimeFull()
+    {
+        var (left, counted, resent) = await GraceWithDrainAsync(0);
+        Assert.Equal(180 * 60, left);
+        Assert.Equal(10, counted);
+        Assert.True(resent, "a running bank's 5035 carries the full bank again (the client counts it down itself)");
+    }
+
+    /// <summary>A minute idle after a kill (the ten-second grace counts) with the given drain: the bank left, the day's
+    /// count, and whether an increment (not the login's full sync) said the bank's value again.</summary>
+    private async Task<(long Left, long Counted, bool Resent)> GraceWithDrainAsync(double drain)
+    {
+        await _app.StopAsync();
+        await _app.DisposeAsync();
+        await StartAsync(o => o.BonusTimeDrain = drain);
+        await using var bot = await InWorld();
+        await Eligible(bot);
+        await Warp(bot, 10111);
+        await Auto(bot, true);
+        await Kill(bot);
+        await OnOwnedLoop(bot, "AFK slow drain fixture", _ =>
+        {
+            long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var s = Session(bot).WildAfk!;
+            s.Info.HighMultiplierTimeSeconds = 3600; s.Info.IsSuspended = false; s.ConsumedTodaySeconds = 0;
+            s.AccountedAtMs = now - 60_000; s.LastKillAtMs = now - 60_000; s.RemainderMs = 0; s.PlayRemainderMs = 0;
+            return Task.CompletedTask;
+        });
+        long left = await Query(bot);
+        bool resent = bot.Inbox.Snapshot().Any(e => e.IsGame(WildAfkService.Sync)
+            && DBWildAFKInfoIncrement.Parser.ParseFrom(e.Body) is { SyncAllMark: false, HasHighMultiplierTimeSeconds: true });
+        return (left, await State(bot, s => s.WildAfk!.ConsumedTodaySeconds), resent);
     }
 
     [ClientDataFact]

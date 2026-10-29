@@ -7,7 +7,7 @@ namespace Ro3Emu.Server.Game;
 /// <summary>The world around the role: scenes, combat targets, MVPs, world interaction, revival and the territory war.</summary>
 public sealed class WorldMessages(Maps.World world, CombatService combat, SceneService scene, MvpService mvps, TowerService tower, DungeonService dungeons, WorldCoreService worldCore, WorldCommonService common, WorldInteractionService interaction, TimedBattleService timedBattles, FestivalService festival, GuildHomeService guildHome, DraculaWeddingService dracula, TrainingService training, TerritoryWarsService territory, TerritoryEscortService escort, GuildLeagueService league) : Messaging.IMessageModule
 {
-    private const uint ChangeViewCfg = 30007, SyncMiniMapStatus = 31043, SceneGetLineInfo = 70009;
+    private const uint ChangeViewCfg = MsgId.ChangeViewCfg, SyncMiniMapStatus = 31043, SceneGetLineInfo = 70009;
 
     public void Map(Messaging.MessageRoutes routes)
     {

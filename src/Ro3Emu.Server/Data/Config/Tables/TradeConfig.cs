@@ -7,8 +7,10 @@ namespace Ro3Emu.Server.Data.Config;
 public readonly partial record struct TradeConfig(JsonElement Row)
 {
     [ConfigField("_iBasePrice")] public partial long BasePrice { get; }
+    [ConfigField("_iID")] public partial long Id { get; }
     [ConfigField("_iBuyLimit")] public partial long BuyLimit { get; }
     [ConfigField("_iMoney")] public partial long Money { get; }
+    [ConfigField("_iShelveLimit")] public partial long ShelveLimit { get; }
     [ConfigField("_iTrade")] public partial long Trade { get; }
     [ConfigField("_iTradeType")] public partial long TradeType { get; }
     [ConfigField("_iType")] public partial long Type { get; }

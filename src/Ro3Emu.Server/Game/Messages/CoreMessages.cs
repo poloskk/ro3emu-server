@@ -9,9 +9,11 @@ namespace Ro3Emu.Server.Game;
 /// they are admitted: role creation under its account, the session's own continuations as runtime, the few that
 /// change only the sender's role under that role.
 /// </summary>
-public sealed class CoreMessages(RoleSessionService roleSessions, ChatService chat, BuffService buffs, GmCommands gm, SceneService scene, TaskService tasks, DailyActivityService daily, TeamService teams, GuildService guilds, DungeonService dungeons, Ownership.RoleHandover handover, Micro.RankService ranks) : Messaging.IMessageModule
+public sealed class CoreMessages(RoleSessionService roleSessions, ChatService chat, BuffService buffs, GmCommands gm, SceneService scene, TaskService tasks, DailyActivityService daily, TeamService teams, GuildService guilds, DungeonService dungeons, Ownership.RoleHandover handover, Micro.RankService ranks, GameLoop loop, NewActivityService activities) : Messaging.IMessageModule
 {
     private const uint EquipGetRank = 31470;
+    /// <summary>Lua_SDK_PayMgr EPayChargeType.Product.</summary>
+    private const int ProductCharge = 2;
 
     public void Map(Messaging.MessageRoutes routes)
     {
@@ -24,6 +26,8 @@ public sealed class CoreMessages(RoleSessionService roleSessions, ChatService ch
             id => id is MsgId.LoginRoleCreate or MsgId.LoginRoleSelect or MsgId.UploadClientSdkInfo);
         routes.AdmitRuntime(id => id is MsgId.SceneLoaded or MsgId.PreSwitchRole or MsgId.LoginRoleSelect or MsgId.Logout
             or MsgId.Heartbeat, "dispatcher/owned continuation");
+        // 30007 changes only the sender's view cap, as 30005 does on a scene load (World.SetViewLimitAsync): no realm scope.
+        routes.AdmitRuntime(id => id == MsgId.ChangeViewCfg, "dispatcher/view settings");
         // Role creation writes only its new role (the unique name index decides between accounts).
         routes.AdmitAccount(id => id == MsgId.LoginRoleCreate);
         routes.AdmitRole(id => id is MsgId.Walk or MsgId.SaveSetting or MsgId.ClientEnterMainUi);
@@ -36,11 +40,25 @@ public sealed class CoreMessages(RoleSessionService roleSessions, ChatService ch
         });
         routes.Map(2001, "handler", async (session, msgId, body) =>
         {
+            // Lua_SDK_PayMgr.ReqPurchaseRequest: chargeType EPayChargeType.Product (2) names a ProductConfig row. The
+            // monthly passes (NewActivityService.OrderMonthCardAsync) and the battle pass (OrderPassAsync) are
+            // delivered; on success the empty order data opens no payment page (_onCreateOrderResult reads
+            // orderData.data.transaction_url), and a refusal pops its ErrMsg (the text is ours, inferred).
             var order = CreateOrderReq.Parser.ParseFrom(body.Span);
+            int result = order.ChargeType != ProductCharge ? ErrorCodes.FeatureUnavailable
+                : order.ChargeId is NewActivityService.PassProduct or NewActivityService.PassGiftProduct
+                    ? await activities.OrderPassAsync(session, order.ChargeId)
+                    : await activities.OrderMonthCardAsync(session, order.ChargeId);
             await session.SendGameAsync(2001, new CreateOrderResp
             {
-                Result = ErrorCodes.FeatureUnavailable,
-                ChargeId = order.ChargeId, ChargeType = order.ChargeType
+                Result = result, ChargeId = order.ChargeId, ChargeType = order.ChargeType,
+                OrderId = result == 0 ? Guid.NewGuid().ToString("N") : "", OrderData = result == 0 ? "{}" : "",
+                ErrMsg = result switch
+                {
+                    0 => "",
+                    ErrorCodes.Parameter => "Already owned, or stocked to its limit.",
+                    _ => "This item cannot be bought on this server.",
+                },
             });
         });
         routes.Map(2002, "handler", async (session, msgId, body) =>
@@ -289,13 +307,28 @@ public sealed class CoreMessages(RoleSessionService roleSessions, ChatService ch
             // C/D 16: every player's heartbeat used to be one Realm scope (S3: 10k per 5 min, the top Realm waiter,
             // other replies queued behind it up to 2.5 s). The role's own reconciliation runs under its reservation;
             // realm guild maintenance (at most once a second) admits its own guild keys.
-            async Task OwnAsync() { await daily.ReconcileAsync(session); await dungeons.ReconcileAsync(session); }
-            if (session.Owners is { } owners && session.Role is { } role)
-                await owners.RunSessionAsync("heartbeat",
-                    [Ownership.ReservationKey.Role(role.Id), Ownership.ReservationKey.Lifecycle(role.Id)], session, OwnAsync);
-            else await OwnAsync();
-            await guilds.ReconcileOnHeartbeatAsync();
+            // The Pong does not wait for that reconciliation: the reader handles a connection's messages in order, so
+            // a heartbeat waiting for the role's lifecycle hold (which a busy role's part holds keep taking first)
+            // held up every later message and the Pong itself until the client's heartbeat timeout showed
+            // "Reconnecting". (inferred) The reconciliation runs detached, one at a time per session.
             await session.SendGameAsync(MsgId.Heartbeat, new Pong { ServerTimeMs = roleSessions.NowMs() });
+            if (session.HeartbeatReconciling) return;
+            session.HeartbeatReconciling = true;
+            loop.TrackDetached("heartbeat reconciliation", async () =>
+            {
+                try { await ReconcileAsync(session); }
+                finally { session.HeartbeatReconciling = false; }
+            });
         });
+    }
+
+    private async Task ReconcileAsync(GameSession session)
+    {
+        async Task OwnAsync() { await daily.ReconcileWindowsAsync(session); await dungeons.ReconcileAsync(session); }
+        if (session.Owners is { } owners && session.Role is { } role)
+            await owners.RunSessionAsync("heartbeat",
+                [Ownership.ReservationKey.Role(role.Id), Ownership.ReservationKey.Lifecycle(role.Id)], session, OwnAsync);
+        else await OwnAsync();
+        await guilds.ReconcileOnHeartbeatAsync();
     }
 }

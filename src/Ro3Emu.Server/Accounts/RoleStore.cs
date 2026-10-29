@@ -205,8 +205,10 @@ public sealed class RoleStore(AccountStore accounts)
     public void SaveEmojiPlay(long id, byte[] value) => SaveBlob(id, "emoji_play", value);
     public byte[]? LoadAchievements(long id) => LoadBlob(id, "achievements");
     public void SaveAchievements(long id, byte[] value, RoleItemPlanBuilder? transaction = null) => SaveBlob(id, "achievements", value, transaction);
+    public Task SaveAchievementsAsync(long id, byte[] value) => SaveBlobAsync(id, "achievements", value);
     public byte[]? LoadAchievementRuntime(long id) => LoadBlob(id, "achievement_runtime");
-    public void SaveAchievementRuntime(long id, byte[] value) => SaveBlob(id, "achievement_runtime", value);
+    /// <summary>Awaited (SaveBlobAsync): at 05:00 every online role counts its login day and saves this at once.</summary>
+    public Task SaveAchievementRuntimeAsync(long id, byte[] value) => SaveBlobAsync(id, "achievement_runtime", value);
     public byte[]? LoadAdventureGroup(long id) => LoadBlob(id, "adventure_group");
     public void SaveAdventureGroup(long id, byte[] value, RoleItemPlanBuilder? transaction = null) => SaveBlob(id, "adventure_group", value, transaction);
 
@@ -248,14 +250,6 @@ public sealed class RoleStore(AccountStore accounts)
     /// <summary>A rollover writes quest progress, daily state and currency in one SQLite transaction.</summary>
     /// <summary>The daily period reset: daily rows, quests, liveness currency and (when given) the AFK allowance of
     /// the new day are one transaction, so no crash can leave a restored AFK bank beside an unreset day or the reverse.</summary>
-    public void SaveDailyReset(long id, byte[] daily, byte[] tasks, string currency, RoleProgress progress,
-        EconomyMutation economy, byte[]? wildAfk = null)
-    {
-        var builder = DailyResetBuilder(id, daily, tasks, currency, progress, economy, wildAfk);
-        Commit(builder, "role/daily-reset");
-        progress.SourceRevision = builder.CommittedVector(id, RevisionStore.Progress);
-    }
-
     internal async Task SaveDailyResetAsync(long id, byte[] daily, byte[] tasks, string currency,
         RoleProgress progress, EconomyMutation economy, byte[]? wildAfk = null)
     {
@@ -394,6 +388,8 @@ public sealed class RoleStore(AccountStore accounts)
     public void SaveGrowthClass(long id, byte[] value, RoleItemPlanBuilder? transaction = null) => SaveBlob(id, "growth_class", value, transaction);
     public byte[]? LoadFirstHeart(long id) => LoadBlob(id, "first_heart");
     public void SaveFirstHeart(long id, byte[] value, RoleItemPlanBuilder? transaction = null) => SaveBlob(id, "first_heart", value, transaction);
+    /// <summary>The login's save of the part, awaited: the loop runs on while it commits (SaveBlobAsync).</summary>
+    public Task SaveFirstHeartAsync(long id, byte[] value) => SaveBlobAsync(id, "first_heart", value);
     public byte[]? LoadPersonal(long id) => LoadBlob(id, "personal");
     public byte[]? LoadSocialOutfit(long id) => LoadBlob(id, "social_outfit");
     public byte[]? LoadEmojiInfo(long id) => LoadBlob(id, "emoji_info");
@@ -497,6 +493,22 @@ public sealed class RoleStore(AccountStore accounts)
             : transaction.ReadRoleBlob(_accounts, id, column);
     }
 
+    /// <summary>
+    /// SaveBlob's own write, awaited instead of blocking the game loop on the commit: a profile of 1500 logins found the
+    /// loop thread waiting on such login saves most of its busy time. Same staging and unchanged-value skips.
+    /// </summary>
+    private async Task SaveBlobAsync(long id, string column, byte[] value)
+    {
+        if (_accounts.TryStage(id, column, value,
+            () => _accounts.Snapshots.Unchanged(id, column, value) || _accounts.Snapshots.PersistedEqual(id, column, value)))
+            return;
+        if (_accounts.Snapshots.Unchanged(id, column, value) || _accounts.Snapshots.PersistedEqual(id, column, value)) return;
+        var save = _accounts.Snapshots.BeginSave(id, column);
+        bool committed = false;
+        try { committed = await _accounts.WriteLegacyAsync<int>(new RoleBlobWritePlan(id, column, value)) > 0; }
+        finally { _accounts.Snapshots.EndSave(id, column, save, value, committed); }
+    }
+
     private void SaveBlob(long id, string column, byte[] value, RoleItemPlanBuilder? transaction = null, bool force = false)
     {
         // Stage G: during the role's selection its default blobs are staged and committed together at the end.
@@ -531,6 +543,9 @@ public sealed class RoleStore(AccountStore accounts)
     public byte[]? LoadTaskRuntime(long id) => LoadBlob(id, "task_runtime");
 
     public void SaveTaskRuntime(long id, byte[] runtime) => SaveBlob(id, "task_runtime", runtime);
+    /// <summary>The quest flush's saves, awaited (SaveBlobAsync): at 05:00 every online role resets its quests.</summary>
+    public Task SaveTasksAsync(long id, byte[] tasks) => SaveBlobAsync(id, "tasks", tasks);
+    public Task SaveTaskRuntimeAsync(long id, byte[] runtime) => SaveBlobAsync(id, "task_runtime", runtime);
 
     /// <summary>The library and its mandatory quest debt share one durable boundary. The source is
     /// the role lifecycle, card id and unlock variant; a replay cannot create another obligation.</summary>

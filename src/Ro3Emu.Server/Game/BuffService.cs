@@ -489,22 +489,59 @@ public sealed partial class BuffService : IGameTicker
         TickPeriodic(now);
         TickHalos(now);
         SweepDecay(now);
+        bool roleExpiry = false;
         foreach (var s in _sessions.All())
         {
-            foreach (var b in s.Buffs.Where(b => b.ExpireMs <= now).ToList()) _loop.TrackLegacyDetached("buff expiration", () => RemoveAsync(s, b));
+            roleExpiry |= s.Buffs.Any(b => b.ExpireMs <= now);
             TickEnergy(s, now);
             TickImmuneDeath(s, now);
         }
-        foreach (var (uid, list) in _unitBuffs.ToList())
+        if (roleExpiry && Due(ref _roleSweep, now)) _loop.TrackLegacyDetached("buff expiration", SweepRoleBuffsAsync);
+        if (_unitBuffs.Values.Any(list => list.Any(b => b.ExpireMs <= now)) && Due(ref _unitSweep, now))
+            _loop.TrackLegacyDetached("unit buff expiration", SweepUnitBuffsAsync);
+    }
+
+    // An expiry sweep takes the realm scope (TrackLegacyDetached), which waits for every keyed hold: while one waits,
+    // the ticker queues no other (one a tick per expired buff piled up ~90000 realm waits under 1500 fake players and
+    // starved logins and heartbeats). A sweep that never ran (its admission refused) frees the slot after a minute.
+    private const long SweepRetryMs = 60_000;
+    private long _roleSweep = -1, _unitSweep = -1;
+
+    private static bool Due(ref long started, long now)
+    {
+        if (started >= 0 && now - started < SweepRetryMs) return false;
+        started = now;
+        return true;
+    }
+
+    /// <summary>Every role buff expired by the time the sweep runs, removed one by one (RemoveAsync).</summary>
+    private async Task SweepRoleBuffsAsync()
+    {
+        try
         {
-            foreach (var buff in list.Where(b => b.ExpireMs <= now).ToList())
+            long now = MonsterService.NowMs;
+            foreach (var s in _sessions.All().ToList())
+                foreach (var b in s.Buffs.Where(b => b.ExpireMs <= now).ToList()) await RemoveAsync(s, b);
+        }
+        finally { _roleSweep = -1; }
+    }
+
+    /// <summary>Every unit buff expired by the time the sweep runs; a gone unit's are dropped.</summary>
+    private async Task SweepUnitBuffsAsync()
+    {
+        try
+        {
+            long now = MonsterService.NowMs;
+            foreach (var (uid, list) in _unitBuffs.ToList())
             {
                 var unit = _world.AllUnits().FirstOrDefault(u => u.Uid == uid);
-                if (unit != null) _loop.TrackLegacyDetached("unit buff expiration", () => RemoveUnitBuffAsync(unit, buff));
-                else list.Remove(buff);
+                foreach (var buff in list.Where(b => b.ExpireMs <= now).ToList())
+                    if (unit != null) await RemoveUnitBuffAsync(unit, buff);
+                    else list.Remove(buff);
+                if (list.Count == 0 && _unitBuffs.GetValueOrDefault(uid) == list) _unitBuffs.Remove(uid);
             }
-            if (list.Count == 0) _unitBuffs.Remove(uid);
         }
+        finally { _unitSweep = -1; }
     }
 
     private async Task ToPlayerAndViewersAsync(GameSession p, uint msgId, Google.Protobuf.IMessage body)

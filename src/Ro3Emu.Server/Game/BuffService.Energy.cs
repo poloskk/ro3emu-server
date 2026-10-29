@@ -157,7 +157,9 @@ public sealed partial class BuffService
             meter.Value = Math.Clamp(meter.Value + ticks * change, 0, GameData.Int(row, "_iLimitValue"));
             meter.LastRecoverMs = meter.NextRecoverMs + (ticks - 1) * interval;
             meter.NextRecoverMs += ticks * interval;
-            _loop.TrackLegacyDetached("energy recovery send", () => SendEnergyAsync(p, id, (EPlayerEnergyChangeReason)1));
+            // Only a send of the meter just changed above: a runtime intent, not a realm scope (one per player per
+            // recovery used to hold the whole realm and queue behind every role's work).
+            _loop.TrackRuntimeDetached("energy recovery send", () => SendEnergyAsync(p, id, (EPlayerEnergyChangeReason)1));
         }
     }
 

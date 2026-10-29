@@ -576,13 +576,13 @@ public sealed class AchievementService : IGameTicker
     {
         RefreshLevels(next);
         if (next.Equals(s.Achievements)) return;
-        _roles.SaveAchievements(s.Role!.Id, next.ToByteArray());
+        await _roles.SaveAchievementsAsync(s.Role!.Id, next.ToByteArray());
         s.Achievements = next;
         await CharacterService.SyncAsync(s, Sync, next.Clone());
     }
 
-    private void SaveRuntime(GameSession s) =>
-        _roles.SaveAchievementRuntime(s.Role!.Id, JsonSerializer.SerializeToUtf8Bytes(s.AchievementRuntime));
+    private Task SaveRuntimeAsync(GameSession s) =>
+        _roles.SaveAchievementRuntimeAsync(s.Role!.Id, JsonSerializer.SerializeToUtf8Bytes(s.AchievementRuntime));
 
     private bool Ready(GameSession s) => s.Role != null && s.Achievements != null && s.AchievementRuntime != null;
 
@@ -607,10 +607,10 @@ public sealed class AchievementService : IGameTicker
         EvaluateSnapshots(s, state, now);
         await EvaluateFriendsAsync(s, state, now);
         RefreshLevels(state);
-        if (saved == null || !state.Equals(original)) _roles.SaveAchievements(role, state.ToByteArray());
+        if (saved == null || !state.Equals(original)) await _roles.SaveAchievementsAsync(role, state.ToByteArray());
         s.Achievements = state;
         s.AchievementRuntime = runtime;
-        if (runtimeChanged) SaveRuntime(s);
+        if (runtimeChanged) await SaveRuntimeAsync(s);
         await CharacterService.SyncAsync(s, Sync, state.Clone());
     }
 
@@ -676,7 +676,7 @@ public sealed class AchievementService : IGameTicker
             if (!Ready(s)) return;
             var next = s.Achievements!.Clone();
             long now = NowMs;
-            if (RollLoginDay(next, s.AchievementRuntime!, now)) SaveRuntime(s);
+            if (RollLoginDay(next, s.AchievementRuntime!, now)) await SaveRuntimeAsync(s);
             EvaluateSnapshots(s, next, now);
             await CommitProgressAsync(s, next);
         }, "achievement day", discarded: () => _recheckQueued.Remove(s));

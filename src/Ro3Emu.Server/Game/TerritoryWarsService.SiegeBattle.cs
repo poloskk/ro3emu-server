@@ -232,52 +232,65 @@ public sealed partial class TerritoryWarsService
         return false;
     }
 
-    private async Task SiegeDamageRecordedAsync(GameSession s, MonsterUnit m, long amount)
+    /// <summary>
+    /// (inferred) A siege's statistics wait here for the next territory tick, which adds them to the state and saves
+    /// once (SiegeClockAsync), and for its settlement. Saving the whole territory state for every hit of every
+    /// participant took the realm-wide territory gate and a full state write per swing: with a hundred and more
+    /// fighting, the one writer fell behind and every login, which shares the season key, waited behind the gate.
+    /// </summary>
+    private readonly Dictionary<(string Run, long Role), SiegeTally> _siegeTallies = [];
+    private readonly Dictionary<string, long> _siegeCrystalHp = [];
+
+    private sealed class SiegeTally { public long Damage, Healed, Taken; public int Kills; }
+
+    private SiegeTally Tally(SiegeRun battle, long role)
     {
-        if (s.SiegeBattle is not { } battle || !SiegeActive(battle) || !SiegeMember(s, battle)
-            || m.InstanceId != battle.Room.Id || s.Role == null) return;
-        using var reservation = await EnterGateAsync("territory/siege damage", s);
-        using var stagedTerritoryState = StageState();
-        try
-        {
-            if (!ReferenceEquals(s.SiegeBattle, battle) || !SiegeActive(battle) || !SiegeMember(s, battle)) return;
-            battle.State.Players[s.Role.Id].Damage += Math.Max(0, amount);
-            if (m == battle.Crystal) battle.State.CrystalHp = m.Hp;
-            await SaveAsync(state);
-        }
-        finally { stagedTerritoryState.Dispose(); _gate.Release(); reservation?.Dispose(); }
+        if (!_siegeTallies.TryGetValue((battle.Key, role), out var tally)) _siegeTallies[(battle.Key, role)] = tally = new();
+        return tally;
     }
 
-    private async Task SiegeHealRecordedAsync(GameSession s, long amount)
+    /// <summary>Adds the waiting statistics to the (staged) state; the caller saves it.</summary>
+    private void FlushSiegeTallies()
     {
-        if (s.SiegeBattle is not { } battle || !SiegeActive(battle) || !SiegeMember(s, battle)
-            || s.Role == null) return;
-        using var reservation = await EnterGateAsync("territory/siege heal", s);
-        using var stagedTerritoryState = StageState();
-        try
-        {
-            if (!ReferenceEquals(s.SiegeBattle, battle) || !SiegeActive(battle) || !SiegeMember(s, battle)) return;
-            battle.State.Players[s.Role.Id].Healed += Math.Max(0, amount);
-            await SaveAsync(state);
-        }
-        finally { stagedTerritoryState.Dispose(); _gate.Release(); reservation?.Dispose(); }
+        foreach (var ((run, role), tally) in _siegeTallies)
+            if (state.SiegeRuns.TryGetValue(run, out var record) && record.Players.TryGetValue(role, out var player))
+            {
+                player.Damage += tally.Damage; player.Healed += tally.Healed; player.Taken += tally.Taken;
+                player.Kills += tally.Kills; player.Score += tally.Kills; // (inferred) one point per player kill.
+            }
+        foreach (var (run, hp) in _siegeCrystalHp)
+            if (state.SiegeRuns.TryGetValue(run, out var record)) record.CrystalHp = hp;
+        _siegeDirty |= _siegeTallies.Count + _siegeCrystalHp.Count > 0;
+        _siegeTallies.Clear();
+        _siegeCrystalHp.Clear();
     }
 
-    private async Task SiegePvpRecordedAsync(GameSession s, GameSession victim, long amount, bool lethal)
+    private Task SiegeDamageRecordedAsync(GameSession s, MonsterUnit m, long amount)
     {
-        if (!SiegeHostile(s, victim)) return;
-        using var reservation = await EnterGateAsync("territory/siege pvp", s);
-        using var stagedTerritoryState = StageState();
-        try
-        {
-            if (!SiegeHostile(s, victim)) return;
-            var battle = s.SiegeBattle!;
-            var attacker = battle.State.Players[s.Role!.Id]; var defender = battle.State.Players[victim.Role!.Id];
-            attacker.Damage += Math.Max(0, amount); defender.Taken += Math.Max(0, amount);
-            if (lethal) { attacker.Kills++; attacker.Score++; } // (inferred) one point per player kill.
-            await SaveAsync(state);
-        }
-        finally { stagedTerritoryState.Dispose(); _gate.Release(); reservation?.Dispose(); }
+        if (s.SiegeBattle is not { } battle || !SiegeActive(battle) || !SiegeMember(s, battle)
+            || m.InstanceId != battle.Room.Id || s.Role == null) return Task.CompletedTask;
+        Tally(battle, s.Role.Id).Damage += Math.Max(0, amount);
+        if (m == battle.Crystal) _siegeCrystalHp[battle.Key] = m.Hp;
+        return Task.CompletedTask;
+    }
+
+    private Task SiegeHealRecordedAsync(GameSession s, long amount)
+    {
+        if (s.SiegeBattle is not { } battle || !SiegeActive(battle) || !SiegeMember(s, battle)
+            || s.Role == null) return Task.CompletedTask;
+        Tally(battle, s.Role.Id).Healed += Math.Max(0, amount);
+        return Task.CompletedTask;
+    }
+
+    private Task SiegePvpRecordedAsync(GameSession s, GameSession victim, long amount, bool lethal)
+    {
+        if (!SiegeHostile(s, victim)) return Task.CompletedTask;
+        var battle = s.SiegeBattle!;
+        var attacker = Tally(battle, s.Role!.Id);
+        attacker.Damage += Math.Max(0, amount);
+        Tally(battle, victim.Role!.Id).Taken += Math.Max(0, amount);
+        if (lethal) attacker.Kills++;
+        return Task.CompletedTask;
     }
 
     private async Task SiegeKilledAsync(GameSession s, MonsterUnit m)
@@ -293,6 +306,7 @@ public sealed partial class TerritoryWarsService
             if (!ReferenceEquals(s.Role, role) || !ReferenceEquals(s.Attachment, attachment)
                 || !SiegeActive(battle) || !SiegeMember(s, battle)) return;
             if (battle.State.Settled || Own(s)?.Id != battle.State.Attack) return;
+            FlushSiegeTallies(); // the settlement counts every swing that came before
             battle.State.Players[s.Role!.Id].Score++; // (inferred) objective credit; crystal kill decides victory.
             await SiegeSettleAsync(battle.Key, battle.State.Attack);
         }
@@ -305,6 +319,7 @@ public sealed partial class TerritoryWarsService
 
     private async Task SiegeClockAsync()
     {
+        FlushSiegeTallies();
         foreach (var (key, run) in state.SiegeRuns.ToArray())
         {
             if (!run.Settled && _clock.Now >= run.End) await SiegeSettleAsync(key, run.Defense);

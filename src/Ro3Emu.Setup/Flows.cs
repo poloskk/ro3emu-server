@@ -128,7 +128,7 @@ internal static class Flows
             {
                 if (last.ElapsedMilliseconds < 200 && done != total) return;
                 last.Restart();
-                Ui.Progress(total > 0 ? $"{stage}: {done * 100 / total}%" : stage + "...");
+                Ui.Progress(total > 0 ? $"{stage}: {done * 100 / total}%" : stage + "...", total > 0 ? (double)done / total : null);
             },
         });
         Ui.EndProgress();
@@ -156,10 +156,12 @@ internal static class Flows
     public static async Task<int> PlayLocalAsync(Options options, bool host)
     {
         Ui.Title(host ? "RO3Emu - host a Ragnarok 3 server" : "RO3Emu - Ragnarok 3 on your own server");
+        Ui.Phase("client");
         var client = await ResolveClientAsync(options, offerInstall: true);
         Ui.Step("Checking the game");
         CheckClient(client, needExport: true);
         Ui.Ok("this game version works with RO3Emu");
+        Ui.Phase("data");
         EnsureGameData(client, options.Reexport);
 
         var serverExe = ServerProcess.FindExecutable()
@@ -194,10 +196,20 @@ internal static class Flows
             env["ASPNETCORE_ENVIRONMENT"] = "Development";
             args.Add("--Ro3Emu:PublicHost=127.0.0.1");
         }
+        // A private realm: the monthly passes cost nothing, and the rates are the owner's (RO3Emu.settings.json): kill EXP,
+        // Bonus Time drain, crystals from elites, mini-bosses and MVPs, and red gear for crystals in stalls.
+        var realm = Settings.Load();
+        string Number(double value) => value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        // Player stalls show on every line of a busy town (fake players open a second Prontera line).
+        args.AddRange(["--Ro3Emu:Pass:FreeProducts=true", "--Ro3Emu:StallsOnAllLines=true", "--Ro3Emu:ExpRate=" + Number(realm.ExpRate),
+            "--Ro3Emu:BonusTimeDrain=" + Number(realm.BonusTimeDrain), "--Ro3Emu:CrystalDrops:Chance=" + Number(realm.CrystalDropChance),
+            "--Ro3Emu:CrystalGear:Rate=" + Number(realm.CrystalGearRate)]);
 
         Ui.Step("Starting the server");
+        Ui.Phase("server");
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
         ServerProcess? server = null;
+        PopulationProcess? population = null;
         if (!host && await ServerProcess.Answers(http, ports.Http))
             Ui.Ok($"a server is already running on port {ports.Http}; using it");
         else
@@ -205,6 +217,9 @@ internal static class Flows
             if (ServerProcess.BusyPort(ports) is { } busy)
                 throw new SetupException($"Port {busy} is already used by another program, so the server cannot start.",
                     "Close the other program (or another RO3Emu window), or start with other ports, for example --http-port 5381 --micro-port 20001 --game-port 33101.");
+            // Thousands of fake players allocate faster than the workstation GC keeps up with on the one game loop
+            // thread (it waited for collections most of its time): with a population the server takes the server GC.
+            if (Bots(options) > 0) env["DOTNET_gcServer"] = "1";
             server = ServerProcess.Start(serverExe, SetupHome.DataDir, ports, args, env);
             var watch = Stopwatch.StartNew();
             bool ready = await server.WaitReadyAsync(TimeSpan.FromMinutes(5), t => Ui.Progress($"loading the game data... {(int)t.TotalSeconds} s"));
@@ -225,6 +240,7 @@ internal static class Flows
         {
             var serverUrl = $"http://{(publicHost.Contains(':') ? "[" + publicHost + "]" : publicHost)}:{ports.Http}";
             var pem = await http.GetStringAsync($"http://127.0.0.1:{ports.Http}/ro3emu/gate-key.pem");
+            Ui.Phase("patch");
             PatchClient(client, serverUrl, pem);
 
             if (host)
@@ -235,12 +251,20 @@ internal static class Flows
                 Ui.Info($"For players outside your network, forward TCP ports {ServerProcess.PortList(ports)} on your router");
                 Ui.Info("to this PC and start with --public <your public IP>.");
             }
-            if (server != null) Program.OnClose = () => server.Stop(TimeSpan.FromSeconds(4));
+            population = StartPopulation(options, ports.Http);
+            Program.OnClose = () => { population?.Stop(TimeSpan.FromSeconds(2)); server?.Stop(TimeSpan.FromSeconds(4)); };
+            if (!options.NoLaunch && population != null && !await WaitForBotsAsync(population)) return 0;
             return await PlayAndWaitAsync(client, server, options.NoLaunch);
         }
         finally
         {
             Program.OnClose = null;
+            Ui.Phase("stopping");
+            if (population != null)
+            {
+                population.Stop(TimeSpan.FromSeconds(15));
+                population.Dispose();
+            }
             if (server != null)
             {
                 bool running = !server.HasExited;
@@ -249,7 +273,74 @@ internal static class Flows
                 server.Dispose();
                 if (running) Ui.Ok($"stopped. Your characters are saved in {SetupHome.DataDir}.");
             }
+            Ui.Phase("done");
         }
+    }
+
+    /// <summary>
+    /// The fake players: --bots, else the count remembered from the last --bots. They log in through the loopback GM
+    /// tool's machine, so they run next to the server (docs/guide/population.md).
+    /// </summary>
+    private static PopulationProcess? StartPopulation(Options options, int httpPort)
+    {
+        int bots = Bots(options);
+        if (bots <= 0) return null;
+        if (PopulationProcess.FindExecutable() is not { } exe)
+        {
+            Ui.Info("Fake players are on, but population\\Ro3Emu.Population.exe is missing next to RO3Emu.exe; starting without them.");
+            return null;
+        }
+        Ui.Step($"Starting {bots} fake players");
+        var population = PopulationProcess.Start(exe, bots, httpPort, Settings.Load().CrystalGearRate);
+        Ui.Ok($"they come online over the next minutes (log {population.LogPath}; --bots 0 turns them off)");
+        return population;
+    }
+
+    /// <summary>How many fake players: --bots (remembered), else the count remembered from the last --bots.</summary>
+    private static int Bots(Options options)
+    {
+        var settings = Settings.Load();
+        if (options.Bots is { } asked && asked != settings.Bots)
+        {
+            settings.Bots = asked;
+            settings.Save();
+        }
+        return settings.Bots;
+    }
+
+    /// <summary>
+    /// Holds the game back while the fake players log in: their logins are the server's heaviest load, and a player
+    /// in the world meanwhile met lag and heartbeat timeouts ("Reconnecting"). False: the player asked to stop.
+    /// </summary>
+    private static async Task<bool> WaitForBotsAsync(PopulationProcess population)
+    {
+        Ui.Step("Waiting for the fake players to log in");
+        Ui.Phase("bots");
+        Ui.Info(Ui.Interactive ? "The game starts once they are in (a few minutes). Press S to start it now, Q to stop."
+            : "The game starts once they are in (a few minutes).");
+        var deadline = DateTime.UtcNow.AddMinutes(20);
+        int shown = -1;
+        Program.Waiting = true;
+        try
+        {
+            while (!population.HasExited && population.Online < population.Bots * 98 / 100 && DateTime.UtcNow < deadline)
+            {
+                if (Program.StopRequested) return false;
+                if (population.Online != shown)
+                {
+                    Ui.Bots(shown = population.Online, population.Bots);
+                    if (Ui.Host == null) Ui.Info($"{shown}/{population.Bots} online");
+                }
+                if (Ui.TakeKey() is { } key)
+                {
+                    if (key is ConsoleKey.Q or ConsoleKey.Escape) return false;
+                    if (key == ConsoleKey.S) break;
+                }
+                await Task.Delay(300);
+            }
+            return !Program.StopRequested;
+        }
+        finally { Program.Waiting = false; }
     }
 
     /// <summary>Starts the game (unless asked not to) and keeps the server up until the player is done.</summary>
@@ -258,6 +349,7 @@ internal static class Flows
         Process? game = null;
         if (!noLaunch) game = LaunchGame(client);
         Ui.Step("Server running");
+        Ui.Phase("running");
         Ui.Info("Keep this window open while you play.");
         if (Ui.Interactive) Ui.Info(noLaunch ? "Press Q to stop the server." : "Press Q to stop the server, or R to start the game again.");
         else Ui.Info("Type quit (or close the window) to stop the server.");
@@ -287,9 +379,8 @@ internal static class Flows
                     if (text == null || text.Trim().Equals("quit", StringComparison.OrdinalIgnoreCase)) break;
                     line = Task.Run(Console.In.ReadLine);
                 }
-                if (Ui.Interactive && Console.KeyAvailable)
+                if (Ui.TakeKey() is { } key)
                 {
-                    var key = Console.ReadKey(intercept: true).Key;
                     if (key is ConsoleKey.Q or ConsoleKey.Escape) break;
                     if (key == ConsoleKey.R && !GameRunning())
                     {

@@ -16,7 +16,9 @@ namespace Ro3Emu.Server.Game;
 public sealed partial class SeasonTalentService
 {
     public const uint TalentSync = 5050, Upgrade = 83550, SetPlan = 83552, RenamePlan = 83553;
-    private const long TalentFunction = 1003, ParentFunction = 10, TalentTask = 10103160, ParentTask = 10101170;
+    private const long TalentFunction = 1003, ParentFunction = 10;
+    /// <summary>The quests whose delivery opens the talent panel (functions 10 and 1003 open on them, LC_ConditionList 4004).</summary>
+    public const long TalentTask = 10103160, ParentTask = 10101170;
     // (inferred) server-side limits: five zero-based plans, eight Unicode scalars, three-second switch cooldown.
     private const int PlanCount = 5, NameMaxRunes = 8, SwitchCooldownSeconds = 3;
     private const int PvpNodeType = 4;

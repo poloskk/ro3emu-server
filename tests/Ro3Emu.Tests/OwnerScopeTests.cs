@@ -426,6 +426,112 @@ public sealed class OwnerScopeTests : IAsyncLifetime
     }
 
     [Fact]
+    public void IndexedHoldsKeepTheOverlapRules()
+    {
+        // Holds are found by entity, account and role id; a realm hold and a realm request still meet everything.
+        var reservations = new ReservationCoordinator();
+        for (long role = 1; role <= 2000; role++) Assert.True(reservations.TryReserve(role, [ReservationKey.Role(role), ReservationKey.Lifecycle(role)]));
+        Assert.True(reservations.TryReserve(5001, [ReservationKey.Role(2001)]));
+        Assert.False(reservations.TryReserve(5002, [ReservationKey.Lifecycle(17)]));       // part vs lifecycle of one role
+        Assert.False(reservations.TryReserve(5003, [ReservationKey.Role(17, "Bag")]));     // a part vs the whole role
+        Assert.True(reservations.TryReserve(5004, [ReservationKey.Account("17")]));        // same id, another kind
+        Assert.True(reservations.TryReserve(5005, [ReservationKey.Entity("guild", "17")]));
+        Assert.False(reservations.TryReserve(5006, [ReservationKey.Realm]));
+        reservations.Abandon(5006);                                                        // a one-shot try gives up
+        Assert.True(reservations.TryReserve(5007, []));                                    // a runtime operation
+        Assert.Equal(17, reservations.Blocker([ReservationKey.Role(17)])?.Operation);
+        for (long role = 1; role <= 2000; role++) reservations.Release(role);
+        foreach (long operation in new long[] { 5001, 5004, 5005, 5007 }) reservations.Release(operation);
+        Assert.True(reservations.TryReserve(6000, [ReservationKey.Realm]));
+        Assert.False(reservations.TryReserve(6001, [ReservationKey.Role(3)]));
+        Assert.True(reservations.TryReserve(6002, []));
+        Assert.Equal(6000, reservations.Blocker([ReservationKey.Entity("guild", "1")])?.Operation);
+        reservations.Release(6000);
+        Assert.True(reservations.TryReserve(6001, [ReservationKey.Role(3)]));
+    }
+
+    [Fact]
+    public async Task AWaiterWakesOnlyForTheKeysThatBlockIt()
+    {
+        var reservations = new ReservationCoordinator();
+        Assert.True(reservations.TryReserve(1, [ReservationKey.Role(10)]));
+        Assert.True(reservations.TryReserve(2, [ReservationKey.Role(20)]));
+        Assert.False(reservations.TryReserve(3, [ReservationKey.Role(10)]));
+        var woken = reservations.ChangedFor([ReservationKey.Role(10)]);
+        reservations.Release(2);                                   // another role: the waiter sleeps on
+        Assert.False(woken.IsCompleted);
+        reservations.Release(1);
+        await woken.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.True(reservations.TryReserve(3, [ReservationKey.Role(10)]));
+
+        // A reader held back by a waiting writer wakes when the writer gives up; a realm hold falls back to any change.
+        var shared = ReservationKey.SharedEntity("guild", "7");
+        Assert.True(reservations.TryReserve(4, [shared]));
+        Assert.False(reservations.TryReserve(5, [ReservationKey.Entity("guild", "7")]));
+        Assert.False(reservations.TryReserve(6, [shared]));
+        var reader = reservations.ChangedFor([shared]);
+        reservations.Abandon(5);
+        await reader.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.False(reservations.TryReserve(7, [ReservationKey.Realm]));
+        reservations.Release(3); reservations.Release(4);
+        Assert.True(reservations.TryReserve(7, [ReservationKey.Realm]));
+        var underRealm = reservations.ChangedFor([ReservationKey.Role(99)]);
+        Assert.False(underRealm.IsCompleted);
+        reservations.Release(7);
+        await underRealm.WaitAsync(TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task ARealmWaiterWakesWhenTheLastKeyedHoldGoes()
+    {
+        var reservations = new ReservationCoordinator();
+        Assert.True(reservations.TryReserve(1, [ReservationKey.Role(1)]));
+        Assert.True(reservations.TryReserve(2, [ReservationKey.Role(2)]));
+        Assert.True(reservations.TryReserve(3, []));
+        Assert.False(reservations.TryReserve(4, [ReservationKey.Realm]));
+        var realm = reservations.ChangedFor([ReservationKey.Realm]);
+        reservations.Release(1);
+        reservations.Release(3);                                   // a runtime operation counts for nothing
+        Assert.False(realm.IsCompleted);
+        reservations.Release(2);
+        await realm.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.True(reservations.TryReserve(4, [ReservationKey.Realm]));
+    }
+
+    [Fact]
+    public async Task TheMomentTheLastKeyedHoldGoesIsAWaitingRealmRequestsTurn()
+    {
+        var reservations = new ReservationCoordinator();
+        Assert.True(reservations.TryReserve(1, [ReservationKey.Role(1)]));
+        Assert.False(reservations.TryReserve(2, [ReservationKey.Realm]));
+        Assert.True(reservations.TryReserve(3, [ReservationKey.Role(2)]));  // disjoint work still proceeds meanwhile
+        reservations.Release(3);
+        reservations.Release(1);                                            // no keyed hold left: the realm's turn
+        Assert.False(reservations.TryReserve(4, [ReservationKey.Role(2)]));
+        Assert.True(reservations.TryReserve(5, []));                        // a runtime operation is never held back
+        var keyed = reservations.ChangedFor([ReservationKey.Role(2)]);
+        Assert.True(reservations.TryReserve(2, [ReservationKey.Realm]));
+        Assert.False(keyed.IsCompleted);
+        reservations.Release(2);
+        await keyed.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.True(reservations.TryReserve(4, [ReservationKey.Role(2)]));
+    }
+
+    [Fact]
+    public async Task ARealmRequestGivingUpItsTurnLetsKeyedRequestsIn()
+    {
+        var reservations = new ReservationCoordinator();
+        Assert.True(reservations.TryReserve(1, [ReservationKey.Role(1)]));
+        Assert.False(reservations.TryReserve(2, [ReservationKey.Realm]));
+        reservations.Release(1);
+        Assert.False(reservations.TryReserve(3, [ReservationKey.Role(2)]));
+        var keyed = reservations.ChangedFor([ReservationKey.Role(2)]);
+        reservations.Abandon(2);
+        await keyed.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.True(reservations.TryReserve(3, [ReservationKey.Role(2)]));
+    }
+
+    [Fact]
     public void ReleasingAnOperationWithoutKeysWakesNoWaiter()
     {
         var reservations = new ReservationCoordinator();

@@ -4,6 +4,7 @@ using Google.Protobuf;
 using Romsg;
 using Ro3Emu.Server.Accounts;
 using Ro3Emu.Server.Data;
+using Ro3Emu.Server.Data.Config;
 using Ro3Emu.Server.Economy;
 
 namespace Ro3Emu.Server.Game;
@@ -27,12 +28,16 @@ public sealed partial class TradeService
             var config = Eligible(item.Entry);
             if (config == null || !functions.IsOpen(s, 2)) return ErrorCodes.TradeRequest;
             var row = config.Value;
-            if (req.CurrencyType != GameData.Int(row, "_iMoney")) return ErrorCodes.TradeRequest;
+            if (req.CurrencyType != SaleCurrency(row)) return ErrorCodes.TradeRequest;
             if (req.Quantity < 1 || req.Quantity > item.Stack || req.Quantity > GameData.Int(row, "_iShelveLimit")
                 || req.Quantity > GameData.Int(row, "_iTradeStackMaxNum")) return ErrorCodes.TradeSaleQuantity;
             if (!ValidPrice(row, req.ItemPrice)) return ErrorCodes.TradePrice;
             if (Active(tx).Count(l => l.SellerId == owner.RoleId) >= s.Trade!.StallsNum) return ErrorCodes.TradeSpace;
-            listingFee = ListingFee(req.ItemPrice, req.Quantity, req.CurrencyType);
+            // (inferred) Crystal gear pays the fee of its Zeny value: crystals have no ShelvesTaxation rule.
+            int money = (int)new TradeConfig(row).Money;
+            listingFee = req.CurrencyType == money
+                ? ListingFee(req.ItemPrice, req.Quantity, req.CurrencyType)
+                : ListingFee((int)Math.Min(int.MaxValue, req.ItemPrice * Crystal.Rate), req.Quantity, money);
             if (listingFee < 0) return ErrorCodes.TradeRequest;
             // UI_Sys_TradeSalePanelCtrl:476-491 checks the fee against item 2, regardless of sale currency.
             // (inferred) Debit the displayed ceil fee at successful listing commit.

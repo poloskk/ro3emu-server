@@ -181,10 +181,16 @@ public static partial class EconomySnapshotReader
         return result;
     }
 
-    /// <summary>Read the same persisted compartments inside the writer's transaction for E05d delta verification.</summary>
+    /// <summary>Read the same persisted compartments inside the writer's transaction for E05d delta verification.
+    /// With <paramref name="roles"/> only those roles and their inventory are read: a holding of an unread role reads
+    /// as recovery-owned before and after alike, so it adds no leg. With <paramref name="compartments"/> only the
+    /// sections holding those compartments are read (a Recovery compartment reads every section).</summary>
     internal static (IReadOnlyList<EconomyHolding> Holdings, IReadOnlyList<EconomyIssue> Issues) ReadTransaction(
-        SqliteConnection db, SqliteTransaction tx, EconomyCatalog catalog)
+        SqliteConnection db, SqliteTransaction tx, EconomyCatalog catalog, IReadOnlySet<long>? roles = null,
+        IReadOnlySet<EconomyCompartment>? compartments = null)
     {
+        bool Wants(params EconomyCompartment[] parts) => compartments == null
+            || compartments.Contains(EconomyCompartment.Recovery) || parts.Any(compartments.Contains);
         var tables = new HashSet<string>(StringComparer.Ordinal);
         using (var command = db.CreateCommand())
         {
@@ -193,15 +199,20 @@ public static partial class EconomySnapshotReader
             using var rows = command.ExecuteReader();
             while (rows.Read()) tables.Add(rows.GetString(0));
         }
-        var state = new State(db, tx, catalog, tables);
+        var state = new State(db, tx, catalog, tables) { RoleFilter = roles };
         state.ReadRoles();
-        state.ReadDungeonPending();
+        if (Wants(EconomyCompartment.Pending)) state.ReadDungeonPending();
         state.ReadItems();
-        state.ReadMarkets();
-        state.ReadAuctions();
-        state.ReadGuilds();
-        state.ReadTerritory();
-        state.ReadObligations();
+        if (Wants(EconomyCompartment.TradeListing, EconomyCompartment.TradePreorder, EconomyCompartment.Stall,
+                EconomyCompartment.LegacyMail)) state.ReadMarkets();
+        if (Wants(EconomyCompartment.AuctionLot, EconomyCompartment.AuctionReserve, EconomyCompartment.AuctionPrebuy,
+                EconomyCompartment.AuctionBonus)) state.ReadAuctions();
+        if (Wants(EconomyCompartment.GuildTreasury, EconomyCompartment.GuildMarket, EconomyCompartment.CaravanPending))
+            state.ReadGuilds();
+        if (Wants(EconomyCompartment.TerritoryPending, EconomyCompartment.TerritoryDrop, EconomyCompartment.TerritoryBid,
+                EconomyCompartment.EscortGoods, EconomyCompartment.EscortListing, EconomyCompartment.EscortCart,
+                EconomyCompartment.EscortCargo, EconomyCompartment.Pending)) state.ReadTerritory();
+        if (Wants(EconomyCompartment.Pending)) state.ReadObligations();
         return (state.Holdings, state.Issues);
     }
 
@@ -210,6 +221,11 @@ public static partial class EconomySnapshotReader
     private sealed partial class State(SqliteConnection db, SqliteTransaction tx, EconomyCatalog catalog, HashSet<string> tables)
     {
         internal HashSet<string> Tables => tables;
+        /// <summary>The roles whose rows and items a scoped read covers; null reads every role.</summary>
+        internal IReadOnlySet<long>? RoleFilter { get; init; }
+        /// <summary>" WHERE {column} IN (...)" for a scoped read (role ids are integers), else "".</summary>
+        private string RoleWhere(string column) => RoleFilter is not { } roles ? ""
+            : " WHERE " + column + " IN (" + (roles.Count == 0 ? "NULL" : string.Join(",", roles.Select(Id))) + ")";
         internal List<EconomyHolding> Holdings { get; } = [];
         internal List<EconomyIssue> Issues { get; } = [];
         internal Dictionary<string, (long Rows, long Blobs, long Bytes)> Metrics { get; } = new(StringComparer.Ordinal);

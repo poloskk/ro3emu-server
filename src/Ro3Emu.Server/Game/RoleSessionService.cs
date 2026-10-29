@@ -147,14 +147,15 @@ public sealed class RoleSessionService(RoleStore roles, Data.GameData data, Buff
     }
 
     /// <summary>Team entry, guild online state and the scene guild id publish together under the role's own guild
-    /// keys (not Realm, which starves behind sustained owned work). A membership change while waiting re-admits.</summary>
+    /// membership keys (GuildService.OwnMemberKeys; not Realm, which starves behind sustained owned work). A membership
+    /// change while waiting re-admits.</summary>
     internal async Task<Ownership.LegacyOwnerScope> EnterScenePublicationAsync(Ownership.OwnerRegistry owners, GameSession session)
     {
         while (true)
         {
             var scope = await owners.EnterAsync("scene online publication",
-                [.. guilds.OwnGuildKeys(session), .. session.Role is { } role ? new[] { Ownership.ReservationKey.Lifecycle(role.Id) } : []]);
-            if (owners.Reservations.Covers(scope.Context.Operation, guilds.OwnGuildKeys(session))) return scope;
+                [.. guilds.OwnMemberKeys(session), .. session.Role is { } role ? new[] { Ownership.ReservationKey.Lifecycle(role.Id) } : []]);
+            if (owners.Reservations.Covers(scope.Context.Operation, guilds.OwnMemberKeys(session))) return scope;
             scope.Dispose();
         }
     }

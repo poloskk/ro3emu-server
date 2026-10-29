@@ -16,6 +16,7 @@ public static class MsgId
     public const uint PlayerAsset = 1023;
     public const uint ClientEnterMainUi = 1038;
     public const uint SceneLoaded = 30005;
+    public const uint ChangeViewCfg = 30007;
     public const uint EntitySelf = 31005;
     public const uint ChangeFace = 31020;
     public const uint SyncAoiSelf = 31044;

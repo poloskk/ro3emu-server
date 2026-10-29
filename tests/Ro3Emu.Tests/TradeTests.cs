@@ -20,6 +20,7 @@ public sealed partial class TradeTests : IAsyncLifetime
     private readonly MutableClock _clock = new();
     private WebApplication _app = null!;
     private string _http = "";
+    private long _crystalGearRate; // Ro3Emu:CrystalGear:Rate, set before a restart
 
     public async Task InitializeAsync()
     {
@@ -28,6 +29,7 @@ public sealed partial class TradeTests : IAsyncLifetime
         {
             o.DataDir = _dataDir; o.GameDataDir = Path.Combine(RepoRoot(), "data");
             o.HttpPort = httpPort; o.MicroGatePort = microPort; o.GameGatePort = gamePort;
+            o.CrystalGear.Rate = _crystalGearRate;
         }, _clock);
         await _app.StartAsync();
         _http = $"http://127.0.0.1:{httpPort}";
@@ -87,6 +89,56 @@ public sealed partial class TradeTests : IAsyncLifetime
             return (Assert.IsType<string>(row["MailId"]), Convert.ToInt32(args["cfg_id"]),
                 MailItemList.Parser.ParseFrom(Assert.IsType<byte[]>(args["items"])));
         }).ToArray();
+    }
+
+    /// <summary>
+    /// The goods vendors list (StallGoods.Exchange) are what the exchange accepts: an ordinary good at either end of
+    /// its range with the fee StallGoods.ListingFee grants, and, with Ro3Emu:CrystalGear, a red armour for crystals
+    /// only, bought with crystals.
+    /// </summary>
+    [ClientDataFact]
+    public async Task VendorExchangeGoodsListAndRedGearSellsForCrystals()
+    {
+        await _app.StopAsync(); await _app.DisposeAsync();
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        _crystalGearRate = 5000;
+        await InitializeAsync();
+        var goods = new Ro3Emu.Population.StallGoods(_app.Services.GetRequiredService<Ro3Emu.Server.Data.GameData>());
+        var exchange = goods.Exchange(_crystalGearRate, quality: 6, currency: 3);
+        Assert.True(exchange.Count > 400);
+        const int Material = 1254013, RedArmour = 2550760, Crystal = 3;
+        var material = Assert.Single(exchange, g => g.ItemId == Material);
+        var red = Assert.Single(exchange, g => g.ItemId == RedArmour);
+        Assert.Equal((1, StallsService.CrystalBase(1212500, 5000)), (material.Currency, red.Currency == Crystal ? red.BasePrice : 0));
+
+        await using var seller = await InWorld("Seller");
+        await using var buyer = await InWorld("Buyer");
+        await Gm("seller", "!lvl 30"); await Gm("buyer", "!lvl 30");
+        int low = (int)((material.BasePrice * material.MinStep + 9) / 10), high = (int)(material.BasePrice * material.MaxStep / 10);
+        await Gm("seller", $"!kit {Material}:2 2:{goods.ListingFee(low) + goods.ListingFee(high)}");
+        long stack = Assert.Single(Items(seller), i => i.Entry == Material).Guid;
+        foreach (int price in new[] { low, high })
+        {
+            await seller.SendGameAsync(TradeService.PutOn, new TradePutOnItemReq { ItemGuid = stack, ItemPrice = price, CurrencyType = 1, Quantity = 1 });
+            Assert.Equal(0, (await Next(seller, TradeService.PutOn, TradePutOnItemResp.Parser)).Result);
+        }
+
+        int crystals = (int)red.BasePrice;
+        await Gm("seller", $"!kit {RedArmour}:1 2:{goods.ListingFee((long)crystals * _crystalGearRate)}");
+        long armour = Assert.Single(Items(seller), i => i.Entry == RedArmour).Guid;
+        await seller.SendGameAsync(TradeService.PutOn, new TradePutOnItemReq { ItemGuid = armour, ItemPrice = 1212500, CurrencyType = 1, Quantity = 1 });
+        Assert.Equal(ErrorCodes.TradeRequest, (await Next(seller, TradeService.PutOn, TradePutOnItemResp.Parser)).Result);
+        await seller.SendGameAsync(TradeService.PutOn, new TradePutOnItemReq { ItemGuid = armour, ItemPrice = crystals, CurrencyType = Crystal, Quantity = 1 });
+        var listed = await Next(seller, TradeService.PutOn, TradePutOnItemResp.Parser);
+        Assert.Equal(0, listed.Result);
+        var commodity = Assert.Single(listed.BoothInfos, c => c.ItemId == RedArmour.ToString());
+        Assert.Equal((Crystal, crystals), (commodity.CurrencyType, commodity.RecommendedPrice));
+
+        await Gm("buyer", $"!item {Crystal} 1000");
+        await buyer.SendGameAsync(TradeService.BuyNormal, new TradeBuyNormalItemsReq
+        { ItemId = RedArmour, SpuId = commodity.SpuId, Price = crystals, TotalPrice = crystals, TotalQuantity = 1 });
+        Assert.Equal(0, (await Next(buyer, TradeService.BuyNormal, TradeBuyNormalItemsResp.Parser)).Result);
+        Assert.Contains(await Mail(buyer, (long)buyer.Self!.Uuid), m => m.Template == 1064);
     }
 
     [ClientDataFact]

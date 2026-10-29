@@ -107,11 +107,21 @@ public sealed partial class TowerService
         && _functions.IsOpen(s, 89) && _functions.IsOpen(s, 5001);
 
     /// <summary>PetFloorConfig is an array. Lookup and sorting use its explicit _iID / _iFloor domains.</summary>
-    private List<JsonElement> Floors()
+    // The season's floors, kept per play book: the achievement sweep reads a role's cleared floor every few seconds.
+    private (int PlayBook, List<JsonElement> Rows, Dictionary<long, JsonElement> ById)? _floors;
+
+    private List<JsonElement> Floors() => SeasonFloors().Rows;
+
+    private (int PlayBook, List<JsonElement> Rows, Dictionary<long, JsonElement> ById) SeasonFloors()
     {
         int playBook = _seasons.PlayBook;
-        return _data.Table("PetFloorConfig").Values.Where(r => FitsPlayBook(r, playBook))
+        if (_floors is { } cached && cached.PlayBook == playBook) return cached;
+        var rows = _data.Table("PetFloorConfig").Values.Where(r => FitsPlayBook(r, playBook))
             .OrderBy(r => GameData.Int(r, "_iFloor")).ToList();
+        var byId = new Dictionary<long, JsonElement>();
+        foreach (var r in rows) byId.TryAdd(GameData.Int(r, "_iID"), r);
+        _floors = (playBook, rows, byId);
+        return _floors.Value;
     }
 
     /// <summary>LC_SeasonHelper.GetMultiverseFitSeason: empty/[0], explicit membership, or [minimum,-1].</summary>
@@ -123,7 +133,7 @@ public sealed partial class TowerService
         return books.EnumerateArray().Any(b => GameData.Number(b) == playBook);
     }
 
-    private JsonElement? Floor(long id) => Floors().Where(r => GameData.Int(r, "_iID") == id).Select(r => (JsonElement?)r).FirstOrDefault();
+    private JsonElement? Floor(long id) => SeasonFloors().ById.TryGetValue(id, out var row) ? row : null;
     private int Cleared(GameSession s) => Floor(s.Tower!.LayerConfID) is { } f ? (int)GameData.Int(f, "_iFloor") : 0;
 
     /// <summary>The highest Spirit Tower floor this role has cleared (PetFloorConfig._iFloor of its record), 0 without one.</summary>

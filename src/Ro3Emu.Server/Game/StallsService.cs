@@ -4,6 +4,7 @@ using Google.Protobuf;
 using Romsg;
 using Ro3Emu.Server.Accounts;
 using Ro3Emu.Server.Data;
+using Ro3Emu.Server.Data.Config;
 using Ro3Emu.Server.Maps;
 
 namespace Ro3Emu.Server.Game;
@@ -43,6 +44,19 @@ public sealed partial class StallsService
     // logins and scene loads add their scene). Before, one scene (the last loaded) was kept.
     private readonly HashSet<long> _maintenanceScenes = [];
     internal Func<Task>? OpeningCommittedForTests { get; set; }
+    private readonly bool _allLines;
+    private readonly CrystalGearOptions _crystalGear;
+
+    /// <summary>
+    /// A stall seen and sold on every line of its map: a system stall, and with Ro3Emu:StallsOnAllLines a player's
+    /// (inferred: with fake players a busy town opens a second line, whose visitors otherwise saw no player stall).
+    /// The opening line still pins the owner's escrow.
+    /// </summary>
+    private bool Shared(StallRow row) => row.SystemId > 0 || _allLines && row.Owner != 0;
+
+    /// <summary>The lines a stall is projected on: its opening line, or every active line of its map when shared.</summary>
+    private RuntimeMapKey[] Lines(StallRow row) => Shared(row)
+        ? _activeLines.Where(x => x.SceneEntry == row.Scene).ToArray() : [RuntimeMapKey.Public(row.Scene, row.LineNumber)];
 
     public StallsService(MarketStore market, GameData data, CharacterService character, TradeService trade,
         RoleStore roles, SessionRegistry sessions, FunctionService functions, SeasonService seasons,
@@ -52,6 +66,8 @@ public sealed partial class StallsService
         this._market = market; this._data = data; this._character = character; this._trade = trade; this._roles = roles;
         this._sessions = sessions; this._functions = functions; this._seasons = seasons; this._world = world;
         this._lines = lines; this._clock = clock; this._loop = loop; _nameMaxLength = options.Value.StallNameMaxLength;
+        _allLines = options.Value.StallsOnAllLines;
+        _crystalGear = options.Value.CrystalGear;
         // C/D 15: the realm-wide stall maintenance (stall collection, owner roles, AOI actors) no longer runs inside the
         // scene's hook scope, nor delays the scene handoff. A scene's first visit starts its system stall population
         // as its own operation; later loads of a visited scene leave it to the one-second maintenance.
@@ -156,7 +172,13 @@ public sealed partial class StallsService
 
     /// <summary>CheckCanStall in Lua_CFG_TradeConfig accepts _iTrade == Stall (2), not TradeAndStall (3).</summary>
     private JsonElement? SaleConfig(int entry) => _data.Row("TradeConfig", entry) is { } row
-        && GameData.Int(row, "_iTrade") == 2 && InSeason(row) ? row : null;
+        && (GameData.Int(row, "_iTrade") == 2 || CrystalGear(entry)) && InSeason(row) ? row : null;
+
+    /// <summary>A crystal gear base price: the Zeny base / rate, rounded up, at least 1.</summary>
+    public static long CrystalBase(long zenyBase, long rate) => Math.Max(1, (zenyBase + rate - 1) / rate);
+
+    /// <summary>Ro3Emu:CrystalGear: equipment of its quality is stall goods priced in crystals (a realm policy, inferred).</summary>
+    private bool CrystalGear(int entry) => _crystalGear.Covers(_data, entry);
 
     /// <summary>
     /// DAL 2064–2221: Top uses 10/10; ordinary steps are floor(base*percent/10+0.5).
@@ -171,9 +193,13 @@ public sealed partial class StallsService
 
     private bool ValidPrice(JsonElement row, int price, int currency)
     {
-        if (price <= 0 || price > Param("TradeLimitPrice", 999999999) || currency != GameData.Int(row, "_iMoney")) return false;
+        // Crystal gear (Ro3Emu:CrystalGear) is priced in its crystals only, on its ladder from base / Rate.
+        var config = new TradeConfig(row);
+        bool crystal = CrystalGear((int)config.Id);
+        if (price <= 0 || price > Param("TradeLimitPrice", 999999999)
+            || currency != (crystal ? _crystalGear.Currency : config.Money)) return false;
         var (min, max) = Range(row);
-        long basis = GameData.Int(row, "_iBasePrice");
+        long basis = crystal ? CrystalBase(config.BasePrice, _crystalGear.Rate) : config.BasePrice;
         return Enumerable.Range(min, max - min + 1).Any(step => (basis * step + 5) / 10 == price);
     }
 
@@ -336,9 +362,7 @@ public sealed partial class StallsService
 
     private async Task PublishCoreAsync(StallRow row, bool notify)
     {
-        var lines = row.SystemId == 0 ? new[] { RuntimeMapKey.Public(row.Scene, row.LineNumber) }
-            : _activeLines.Where(x => x.SceneEntry == row.Scene).ToArray();
-        foreach (var runtime in lines)
+        foreach (var runtime in Lines(row))
         {
             ProjectionStart(runtime);
             try
@@ -384,7 +408,7 @@ public sealed partial class StallsService
                 if ((row.Owner != 0 && s.ViewedStall == row.Owner) || (row.SystemId != 0 && s.ViewedSystemStall == row.SystemId))
                 {
                     await s.SendGameAsync(BuyerChange, new PlayerStallsSyncBuyerStallsInfoNtf
-                    { Info = BuyerView(row, row.SystemId > 0 && s.SceneEntry == row.Scene ? s.LineNumber : 0) });
+                    { Info = BuyerView(row, Shared(row) && s.SceneEntry == row.Scene ? s.LineNumber : 0) });
                     if (row.Ended) s.ViewedStall = s.ViewedSystemStall = 0;
                 }
             }
@@ -402,8 +426,10 @@ public sealed partial class StallsService
         {
             Row = row; this._template = template;
             // Stable separate AOI IDs and StallsID=owner are (inferred); DAL compares StallsID with its role UUID.
+            // A player stall shown beyond its opening line (Ro3Emu:StallsOnAllLines) takes a projection ID there too.
             Uid = row.SystemId != 0 && runtime.LineNumber > 1 ? nextProjectionId()
-                : row.SystemId != 0 ? 7_100_000_000_000L + row.SystemId : 7_000_000_000_000L + row.Owner;
+                : row.SystemId != 0 ? 7_100_000_000_000L + row.SystemId
+                : runtime.LineNumber != row.LineNumber ? nextProjectionId() : 7_000_000_000_000L + row.Owner;
             SceneEntry = row.Scene; RuntimeMap = runtime; X = row.X; Y = row.Y; Z = row.Z;
         }
         public override EntityBase Entity()
