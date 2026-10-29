@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -14,7 +15,7 @@ namespace Ro3Emu.Play;
 /// early, R starts it again, Q stops the server) and its dialogs answer the flow's questions. A poll of the server's
 /// /ro3emu/metrics feeds the status panel.
 /// </summary>
-internal sealed class PlayController(string[] args, Action<object> post, Action closeWindow) : IUiHost, IDisposable
+internal sealed class PlayController(string[] args, Action<object> post, Action closeWindow, Action restart) : IUiHost, IDisposable
 {
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -23,6 +24,10 @@ internal sealed class PlayController(string[] args, Action<object> post, Action 
 
     private readonly Action<object> _post = post;
     private readonly Action _closeWindow = closeWindow;
+    private readonly Action _restart = restart;
+    private readonly Updater _updater = new();
+    private Updater.Release? _release;
+    private bool _updating;
     private readonly Options _options = Options.Parse(args);
     private readonly ConcurrentQueue<ConsoleKey> _keys = new();
     private readonly ConcurrentDictionary<int, TaskCompletionSource<string>> _questions = new();
@@ -53,6 +58,7 @@ internal sealed class PlayController(string[] args, Action<object> post, Action 
                     waiting.TrySetResult(message.GetProperty("value").GetString() ?? "");
                 break;
             case "settings": SaveSettings(message); break;
+            case "update": _ = UpdateAsync(); break;
         }
     }
 
@@ -61,6 +67,8 @@ internal sealed class PlayController(string[] args, Action<object> post, Action 
     {
         PostSettings();
         _ = PollAsync(_stop.Token);
+        if (_release == null) _ = CheckUpdateAsync();
+        else PostUpdate(_release);
         if (_flow == null) Start();
         else _post(new { type = "phase", phase = _phase });
     }
@@ -199,10 +207,67 @@ internal sealed class PlayController(string[] args, Action<object> post, Action 
         _post(new { type = "saved" });
     }
 
+    // ---- the launcher's update (Updater) ----
+
+    /// <summary>A newer release, offered on the page; a failed check (offline, GitHub unreachable) only goes to the log.</summary>
+    private async Task CheckUpdateAsync()
+    {
+        try
+        {
+            if (await _updater.CheckAsync(_stop.Token) is { } release) PostUpdate(_release = release);
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException or KeyNotFoundException
+            or InvalidOperationException)
+        {
+            SetupLog.Write($"update check: {e.Message}");
+        }
+    }
+
+    private void PostUpdate(Updater.Release release) =>
+        _post(new { type = "update", version = release.Version.ToString(3), current = Updater.Current.ToString(3) });
+
+    /// <summary>The page's Update: stops the server (the characters are saved), downloads the release, puts its files in
+    /// place and starts the new launcher.</summary>
+    private async Task UpdateAsync()
+    {
+        if (_release is not { } release || _updating) return;
+        _updating = true;
+        string version = release.Version.ToString(3);
+        try
+        {
+            if (Running)
+            {
+                _post(new { type = "updating", text = "Saving your characters and stopping the server…" });
+                Stop(closeAfter: false);
+                await _flow!.ContinueWith(_ => { }, TaskScheduler.Default);
+            }
+            int shown = -1;
+            string file = await _updater.DownloadAsync(release, f =>
+            {
+                int percent = (int)(f * 100);
+                if (percent == shown) return;
+                shown = percent;
+                _post(new { type = "updating", text = $"Downloading RO3Emu {version}… {percent}%" });
+            }, _stop.Token);
+            _post(new { type = "updating", text = $"Installing RO3Emu {version}…" });
+            await Task.Run(() => Updater.Apply(file, SetupHome.AppDir));
+            File.Delete(file);
+            SetupLog.Write($"updated to {version}");
+            _restart();
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException)
+        {
+            SetupLog.Write($"update to {version} failed: {e}");
+            _post(new { type = "update-failed", text = e.Message });
+            _updating = false;
+        }
+    }
+
     public void Dispose()
     {
         _stop.Cancel();
         _stop.Dispose();
         _http.Dispose();
+        _updater.Dispose();
     }
 }

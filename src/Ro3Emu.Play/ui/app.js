@@ -48,6 +48,34 @@ $("btn-play").onclick = () => {
 };
 $("btn-stop").onclick = () => send({ cmd: "stop" });
 
+// ---------- the launcher's update ----------
+$("btn-update").onclick = () => {
+  const running = state.server && state.ended === null;
+  confirmHere(`Update RO3Emu to ${state.update.version}?`
+    + (running ? " The server stops first (your characters are saved)." : "")
+    + " The launcher starts again when it is done.", () => {
+    state.updating = true;
+    showCurtain("Starting the update…");
+    send({ cmd: "update" });
+  });
+};
+function showCurtain(text) { $("curtain-text").textContent = text; $("curtain").hidden = false; }
+// A question of the page's own (the flow's questions come through "ask").
+function confirmHere(question, onYes) {
+  $("modal-title").textContent = "Confirm";
+  $("modal-text").textContent = question;
+  $("modal-input").hidden = true;
+  const button = (text, primary, action) => {
+    const b = document.createElement("button");
+    b.className = "cream" + (primary ? " primary" : "");
+    b.textContent = text;
+    b.onclick = () => { $("modal").hidden = true; action?.(); };
+    return b;
+  };
+  $("modal-buttons").replaceChildren(button("Not now", false), button("Update", true, onYes));
+  $("modal").hidden = false;
+}
+
 function refreshButtons() {
   const play = $("btn-play"), label = $("play-label"), sub = $("play-sub");
   let enabled = false, text = "Starting…", hint = "", ready = false;
@@ -90,7 +118,7 @@ function setPhase(phase) {
   if (phase === "running") showBar(1, true);
   else if (phase === "bots") showBots();
   else if (phase !== "done" && phase !== "failed") showBar(null);
-  $("curtain").hidden = phase !== "stopping" || !state.closing;
+  $("curtain").hidden = !state.updating && (phase !== "stopping" || !state.closing);
   refreshButtons();
 }
 
@@ -210,6 +238,17 @@ window.chrome?.webview?.addEventListener("message", e => {
       if (m.code !== 0) $("bar").classList.add("error");
       break;
     case "closing": state.closing = true; $("curtain").hidden = false; break;
+    case "update":
+      state.update = m;
+      $("update-text").textContent = `RO3Emu ${m.version} is out (you have ${m.current}).`;
+      $("update").hidden = false;
+      break;
+    case "updating": showCurtain(m.text); break;
+    case "update-failed":
+      state.updating = false;
+      $("curtain").hidden = true;
+      $("update-text").textContent = "The update did not work: " + m.text;
+      break;
   }
 });
 

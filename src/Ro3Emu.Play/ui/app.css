@@ -95,6 +95,11 @@ hr{border:0;height:1px;margin:12px 0;background:linear-gradient(90deg,transparen
 .detail.warn{color:#9a5b12}
 .detail.error{color:var(--red);white-space:normal}
 
+/* ---------- the launcher's update, above the play button ---------- */
+.update{right:26px;bottom:200px;width:250px;padding:20px 22px 18px}
+.update p{margin:-4px 0 12px;font-size:13px;color:var(--ink)}
+.update .cream{width:100%}
+
 /* ---------- the play button: a gold banner, as the game's ---------- */
 .actions{position:fixed;right:26px;bottom:26px;width:250px;display:flex;flex-direction:column;gap:10px;z-index:3}
 .play{position:relative;height:96px;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;

@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media.Imaging;
 using Microsoft.Web.WebView2.Core;
 
 namespace Ro3Emu.Play;
@@ -17,6 +18,7 @@ public partial class MainWindow : Window
 {
     private const string Origin = "https://play.ro3emu/";
     private readonly PlayController _controller;
+    private readonly string[] _args;
     // Development: RO3EMU_PLAY_UI=<folder> serves the page from disk and turns on the dev tools.
     private readonly string? _uiOverride = Environment.GetEnvironmentVariable("RO3EMU_PLAY_UI");
     private bool _closing;
@@ -24,7 +26,10 @@ public partial class MainWindow : Window
     public MainWindow(string[] args)
     {
         InitializeComponent();
-        _controller = new PlayController(args, Post, () => Dispatcher.Invoke(Close));
+        _args = args;
+        _controller = new PlayController(args, Post, () => Dispatcher.Invoke(Close), () => Dispatcher.Invoke(Restart));
+        // A release's launcher embeds no art (pack.ps1): the player's own art\ next to it, when there is one.
+        if (Art("ro3.ico") is { } icon) Icon = BitmapFrame.Create(new Uri(icon));
         SourceInitialized += (_, _) => NativeMethods.RoundCorners(new WindowInteropHelper(this).Handle);
         Loaded += async (_, _) => await InitializeWebAsync();
         Closing += OnClosing;
@@ -101,7 +106,23 @@ public partial class MainWindow : Window
             string file = Path.Combine(_uiOverride, path.Replace('/', Path.DirectorySeparatorChar));
             return File.Exists(file) ? new MemoryStream(File.ReadAllBytes(file)) : null;
         }
-        return Assembly.GetExecutingAssembly().GetManifestResourceStream("ui/" + path);
+        return Assembly.GetExecutingAssembly().GetManifestResourceStream("ui/" + path)
+            ?? (path.StartsWith("art/", StringComparison.Ordinal) && Art(path["art/".Length..]) is { } art ? new MemoryStream(File.ReadAllBytes(art)) : null);
+    }
+
+    /// <summary>A file of the player's own art\ folder next to the launcher (tools/release/launcher-art.ps1), or null.</summary>
+    private static string? Art(string name) =>
+        !name.Contains('/') && Path.Combine(Ro3Emu.Setup.SetupHome.AppDir, "art", name) is var file && File.Exists(file) ? file : null;
+
+    /// <summary>After an update: the new launcher, with this one's arguments, in place of this one (it takes over the
+    /// one-window lock).</summary>
+    private void Restart()
+    {
+        ((App)Application.Current).ReleaseSingleInstance();
+        var start = new ProcessStartInfo(Path.Combine(Ro3Emu.Setup.SetupHome.AppDir, "RO3EmuPlay.exe")) { UseShellExecute = false };
+        foreach (string arg in _args) start.ArgumentList.Add(arg);
+        Process.Start(start)?.Dispose();
+        Application.Current.Shutdown();
     }
 
     private static string ContentType(string path) => Path.GetExtension(path).ToLowerInvariant() switch
