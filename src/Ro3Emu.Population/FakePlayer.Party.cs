@@ -223,7 +223,7 @@ public sealed partial class FakePlayer
         // Run from a boss when low, then drink (FakePlayer.Potions); low anywhere, drink.
         if (await EvadeAsync(ct)) { await DrinkAsync(ct); return true; }
         if (await DrinkAsync(ct)) return true;
-        if (await SupportAsync(host, ct)) return true; // heals reach the whole party; buffs need the host close
+        if (await SupportAsync(host, ct)) return true; // heals are for the host; revives reach the whole party
         bool hostDead;
         lock (_partyLock) hostDead = _hostDead;
         // A support class stays by its host (its buffs reach only so far); nobody fights on while the host lies dead.

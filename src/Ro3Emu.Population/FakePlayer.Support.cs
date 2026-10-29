@@ -5,7 +5,7 @@ namespace Ro3Emu.Population;
 
 /// <summary>
 /// A fake player in a real player's party (SupportKit) learns its job's skills once per job through the client's 31151
-/// skill plan request. A support class keeps its buffs on the host and heals and revives the whole party; every
+/// skill plan request. A support class keeps its buffs and heals on the host and revives the whole party; every
 /// class fights with its attack skills between normal attacks (31102 casts as a player's, the server's ordinary
 /// checks). A population choice (inferred).
 /// </summary>
@@ -13,7 +13,7 @@ public sealed partial class FakePlayer
 {
     /// <summary>The buffs are cast within this distance of the host (inside their radius, SkillConfig ${1}).</summary>
     private const float SupportReach = 6;
-    /// <summary>A party member below this share of its life is healed, the lowest first.</summary>
+    /// <summary>The host below this share of its life is healed.</summary>
     private const double HealBelow = 0.9;
     /// <summary>An ally skill's reach when its SkillConfig row names none (_iDistanceMax).</summary>
     private const float AllyReach = 9;
@@ -23,8 +23,8 @@ public sealed partial class FakePlayer
     private readonly Dictionary<int, DateTime> _nextCast = [];
 
     /// <summary>
-    /// One support cast when one is due, heals first: the party member lowest on life below <see cref="HealBelow"/> in
-    /// the heal's reach (the healer too), a dead one to revive, then the host's buffs while it is close. False when none
+    /// One support cast when one is due, heals first: the host below <see cref="HealBelow"/> in the heal's reach (the
+    /// other members drink potions), a dead member to revive, then the host's buffs while it is close. False when none
     /// was cast.
     /// </summary>
     private async Task<bool> SupportAsync(long host, CancellationToken ct)
@@ -32,8 +32,9 @@ public sealed partial class FakePlayer
         var kit = await SupportSkillsAsync(ct);
         Dictionary<long, Member> members;
         bool hostDead;
+        double hostLife;
         Vec3? hostAt;
-        lock (_partyLock) (members, hostDead, hostAt) = (new(_members), _hostDead, _hostPos);
+        lock (_partyLock) (members, hostDead, hostLife, hostAt) = (new(_members), _hostDead, _hostLife, _hostPos);
         bool hostNear = !hostDead && hostAt is { } h && Distance(h) <= SupportReach;
         var now = DateTime.UtcNow;
         foreach (var skill in kit)
@@ -42,8 +43,9 @@ public sealed partial class FakePlayer
             float reach = row.DistanceMax > 0 ? row.DistanceMax / 100f : AllyReach;
             long? target = skill.Use switch
             {
-                SupportUse.Heal => Patient(members, reach, m => !m.Dead && m.Life < HealBelow, self: true),
-                SupportUse.Revive => Patient(members, reach, m => m.Dead, self: false),
+                // Heals are for the host alone: the other members drink their own potions (FakePlayer.Potions).
+                SupportUse.Heal => !hostDead && hostLife < HealBelow && hostAt is { } at && Distance(at) <= reach ? host : null,
+                SupportUse.Revive => Patient(members, reach, m => m.Dead),
                 SupportUse.Ally => hostNear ? host : null,
                 _ => hostNear ? 0 : null,
             };
@@ -58,13 +60,12 @@ public sealed partial class FakePlayer
         return false;
     }
 
-    /// <summary>The member a heal or revive is for: the one lowest on life that needs it, within reach (the bot itself,
-    /// when <paramref name="self"/>, whatever its card's position says).</summary>
-    private long? Patient(Dictionary<long, Member> members, float reach, Func<Member, bool> needs, bool self)
+    /// <summary>The member a revive is for: the one lowest on life that needs it, within reach (never the bot itself).</summary>
+    private long? Patient(Dictionary<long, Member> members, float reach, Func<Member, bool> needs)
     {
         long me = _view.Self;
         foreach (var (id, member) in members.OrderBy(m => m.Value.Life))
-            if (needs(member) && (id == me ? self : member.Pos is { } at && Distance(at) <= reach)) return id;
+            if (needs(member) && id != me && member.Pos is { } at && Distance(at) <= reach) return id;
         return null;
     }
 
