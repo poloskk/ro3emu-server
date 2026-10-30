@@ -32,6 +32,8 @@ public sealed partial class MapTests : IAsyncLifetime
             o.HttpPort = httpPort;
             o.MicroGatePort = microPort;
             o.GameGatePort = gamePort;
+            o.CrystalDrops.Chance = 1; // a field MVP's participants get their crystals (the MVP kill below)
+            o.CrystalDrops.NormalChance = 0;
         });
         await _app.StartAsync();
         _http = $"http://127.0.0.1:{httpPort}";
@@ -630,6 +632,8 @@ public sealed partial class MapTests : IAsyncLifetime
         Assert.Contains(result.Awards, a => a.Tp == MVP_AWARD_TYPE.End);
         Assert.Contains(result.Awards, a => a.Tp == MVP_AWARD_TYPE.Join);
         Assert.Contains(result.Awards, a => a.ItemId == 2 && a.Count >= 30000); // 30 x 1000 Minted Coin (pool 21001)
+        // Ro3Emu:CrystalDrops: a field MVP settles through MvpService, so its crystals come with the participation award.
+        Assert.Contains(result.Awards, a => a.ItemId == 3 && a.Tp == MVP_AWARD_TYPE.Join && a.Count is >= 20 and <= 40);
         Assert.Equal(1, result.PlayerInfo.FirstNum);
         Assert.Equal(1, ReceiptCount("event/mvp-settlement"));
         Assert.Equal(1, ReceiptCount("event/mvp-delivery"));

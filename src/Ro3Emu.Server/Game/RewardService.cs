@@ -42,7 +42,11 @@ public sealed class RewardService
         Microsoft.Extensions.Options.IOptions<ServerOptions>? options = null)
     {
         _expRate = Math.Max(0, options?.Value.ExpRate ?? 1);
-        if (options?.Value.CrystalDrops is { Chance: > 0 } crystals) ExtraKillDrops.Add((_, monster) => CrystalDrop(crystals, monster));
+        if (options?.Value.CrystalDrops is { Chance: > 0 } crystals)
+        {
+            _crystals = crystals;
+            ExtraKillDrops.Add((_, monster) => CrystalDrop(crystals, monster));
+        }
         this._character = character;
         this._teams = teams;
         this._data = data;
@@ -70,6 +74,20 @@ public sealed class RewardService
         if (type is not (EliteType or MiniType or MvpType) || _random.NextDouble() >= crystals.Chance) yield break;
         var (min, max) = type == MvpType ? (crystals.MvpMin, crystals.MvpMax) : (crystals.Min, crystals.Max);
         if (max >= min && max > 0) yield return (crystals.Item, _random.Next(Math.Max(1, min), max + 1));
+    }
+
+    private readonly CrystalDropOptions? _crystals;
+
+    /// <summary>
+    /// A field MVP's crystals for one of its participants: a field MVP's death settles through MvpService (its first,
+    /// last, team and participation awards), never through a kill's own drops, so its CrystalDrop would reach nobody.
+    /// Every participant gets an MVP's share instead (inferred, the same realm policy). Null when none falls.
+    /// </summary>
+    internal (int Entry, int Count)? MvpCrystals()
+    {
+        if (_crystals is not { } crystals || crystals.MvpMax < crystals.MvpMin || crystals.MvpMax <= 0
+            || _random.NextDouble() >= crystals.Chance) return null;
+        return (crystals.Item, _random.Next(Math.Max(1, crystals.MvpMin), crystals.MvpMax + 1));
     }
 
     private sealed class KillOutcome

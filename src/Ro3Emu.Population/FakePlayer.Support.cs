@@ -171,7 +171,9 @@ public sealed partial class FakePlayer
             return true;
         }
         if (!await SwingAsync(normal, (long)target.Uuid, ct)) return false;
-        await Task.Delay(TimeSpan.FromSeconds(1.2 + _random.NextDouble() * 0.6), ct);
+        // In a real player's party at the pace of its attack speed: a swing sent early waits on the server for the
+        // next one (CombatService.DeferNormalAttackAsync), so a short pause loses no swing. Alone, a relaxed pace.
+        await Task.Delay(InParty ? TimeSpan.FromMilliseconds(350 + _random.Next(150)) : TimeSpan.FromSeconds(1.2 + _random.NextDouble() * 0.6), ct);
         return true;
     }
 

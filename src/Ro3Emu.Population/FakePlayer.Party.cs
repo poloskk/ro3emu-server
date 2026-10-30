@@ -263,15 +263,18 @@ public sealed partial class FakePlayer
         float reach = boss ? BossRange : 3f;
         if (InParty && anyBoss)
         {
-            // Round a boss each party member takes its own place, not one heap on the boss (the player's wish).
+            // Round a boss each party member takes its own place, not one heap on the boss (the player's wish). It moves
+            // only when out of its reach (or a ranged one too close): every walk is time not spent attacking.
+            float own = AttackReach() is >= RangedReach and var far ? far : 3f, now = Distance(at);
+            bool move = now > own - 0.4f || own >= RangedReach && now < 3f;
             var place = BossPlace(at);
-            if (Distance(place) > 1.5f && !await GoAsync(new MapPoint(place.X, place.Y, place.Z, 0), ct)) { await ShuffleAsync(6, ct); return; }
+            if (move && Distance(place) > 1f && !await GoAsync(new MapPoint(place.X, place.Y, place.Z, 0), ct)) { await ShuffleAsync(6, ct); return; }
         }
         else if (Distance(at) > reach && !await GoAsync(new MapPoint(at.X, at.Y, at.Z, 0), ct, short_: reach - 1)) { await ShuffleAsync(6, ct); return; }
         long skill = ctx.Plan.NormalAttack(_job) is > 0 and var s ? s : FallbackAttack;
         await SendAsync(CombatService.LockEnemy, new LockEnemyReq { EnemyId = (long)target.Uuid }, ct);
         // Its job's attack skills when ready, else the normal attack (FakePlayer.Support.AttackOnceAsync).
-        for (int swing = 0; swing < 6 && _view.Monsters().FirstOrDefault(m => m.Uuid == target.Uuid) is { } current; swing++)
+        for (int swing = 0; swing < (InParty ? PartyStrikes : 6) && _view.Monsters().FirstOrDefault(m => m.Uuid == target.Uuid) is { } current; swing++)
         {
             if (await EvadeAsync(ct)) { await DrinkAsync(ct); return; }
             if (InParty) await DrinkAsync(ct);
@@ -301,6 +304,8 @@ public sealed partial class FakePlayer
 
     /// <summary>A reach from which a party member keeps its distance from a boss.</summary>
     private const float RangedReach = 5;
+    /// <summary>Attacks a party member makes before it looks round again (its mark, its place, its potions).</summary>
+    private const int PartyStrikes = 16;
 
     /// <summary>How far this bot hits from: a caster's spells (the shortest of its attack skills: every one must reach),
     /// anyone else's normal attack (a bow's, a gun's or a weapon's).</summary>

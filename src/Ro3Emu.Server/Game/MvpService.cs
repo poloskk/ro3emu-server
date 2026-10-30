@@ -668,6 +668,10 @@ public sealed partial class MvpService : IGameTicker
         var rankedMembers = teamsRanked.Take(RankedTeams).SelectMany(t => t.Members).ToHashSet();
         foreach (var id in rankedMembers) Give(id, MVP_AWARD_TYPE.Team, st.Def.Team);
         foreach (var id in st.Stats.Keys) Give(id, MVP_AWARD_TYPE.Join, st.Def.Part);
+        // Ro3Emu:CrystalDrops: each participant's crystals with its participation award (RewardService.MvpCrystals).
+        foreach (var id in st.Stats.Keys)
+            if (online.ContainsKey(id) && _rewards.MvpCrystals() is var (crystal, crystals))
+                awards.GetValueOrDefault(id)?.Add(new MVPPlayerAwardItem { ItemId = crystal, Count = crystals, Tp = MVP_AWARD_TYPE.Join });
         // One rare winner per kill, among the ranked/participation receivers, weighted towards better ranks (inferred).
         long rarePlayer = 0, rareTeam = 0;
         if (st.Stats.Count > 0 && _random.Next(10000) < st.Def.RareChance)
