@@ -90,7 +90,7 @@ public sealed partial class CharacterService
         if (matchAttributes == null) sheet = EmblemService.ApplyResonanceConversions(session, raw, sheet, data);
         if (matchAttributes == null && StrengthSource?.Invoke(session) is { } leader && !ReferenceEquals(leader, session))
         {
-            var theirs = Stats(leader);
+            var theirs = LeaderStats(leader);
             foreach (int id in MatchedAttributes) sheet[id] = Math.Max(sheet[id], theirs[id]);
         }
         long maxHp = sheet[MaxHp], maxSp = sheet[MaxSp];
@@ -225,6 +225,21 @@ public sealed partial class CharacterService
     /// <summary>ServerOptions.PartyBotsMatchLeader: the real player whose combat attributes a fake player fights with at
     /// least (TeamService.BotLeader), else null. That player's own sheet never asks again (it is no fake player).</summary>
     public Func<GameSession, GameSession?>? StrengthSource { get; set; }
+
+    /// <summary>A real player's sheet as its party's fake players read it: kept for <see cref="LeaderSheetMs"/>, since every
+    /// one of them asks on each hit and cast (the leader's own Stats stays exact).</summary>
+    private StatSheet LeaderStats(GameSession leader)
+    {
+        long now = Environment.TickCount64;
+        if (_leaderSheets.TryGetValue(leader, out var kept) && now - kept.At < LeaderSheetMs) return kept.Sheet;
+        var sheet = Stats(leader);
+        _leaderSheets.AddOrUpdate(leader, new KeptSheet(now, sheet));
+        return sheet;
+    }
+
+    private sealed record KeptSheet(long At, StatSheet Sheet);
+    private const long LeaderSheetMs = 250;
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<GameSession, KeptSheet> _leaderSheets = new();
 
     /// <summary>The combat attributes a party's fake player takes at least from its real player (AttributeConfig):
     /// maxhp..rescri (101-112, not speed or attack speed), and the damage bonuses and resistances per_cri_dmg..

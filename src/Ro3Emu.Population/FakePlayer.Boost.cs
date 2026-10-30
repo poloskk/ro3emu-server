@@ -4,12 +4,12 @@ using Romsg;
 namespace Ro3Emu.Population;
 
 /// <summary>
-/// A fake player in a real player's party fights beside it at its best, once per job: its job level at the cap (GM !lvl
-/// clamps it to JobLvConfig _iMaxJobLv; the job level is what earns skill points, SkillService.SkillPoints), its skills
-/// learned again at their caps with those points, and the stat points of a character at the level cap (GM !points: what
-/// BaseLvConfig gives from its level to WorldPlan.MaxLevel) spent on its build (31500), as a real player's finished
-/// build: its main stats high, not all six at 99. A population choice (inferred): the original server had only real
-/// players.
+/// A fake player in a real player's party fights beside it at its best, once per job: at the level cap and in its line's
+/// last job (GM !lvl, then GM !job for each job its level allows), its job level at the cap (GM !lvl clamps it to
+/// JobLvConfig _iMaxJobLv; the job level is what earns skill points, SkillService.SkillPoints), its skills learned again
+/// at their caps with those points, and the stat points of a character at the level cap (GM !points: what BaseLvConfig
+/// gives from its level to WorldPlan.MaxLevel) spent on its build (31500), as a real player's finished build: its main
+/// stats high, not all six at 99. A population choice (inferred): the original server had only real players.
 /// </summary>
 public sealed partial class FakePlayer
 {
@@ -20,6 +20,16 @@ public sealed partial class FakePlayer
     private async Task BoostStepAsync(CancellationToken ct)
     {
         if (!InParty || _boostedJob == _job || entry.Level == 0 || !entry.Prepared) return;
+        // The level cap first, then every later job of its line (FakePlayer.Growth.TakeJobAsync): a party member fights
+        // in its line's last job.
+        int max = ctx.Plan.MaxLevel;
+        if (entry.Level < max && await ctx.GmAsync(entry.Account, $"!lvl {max} {AnyMaxJobLevel}", ct, ownRole: true))
+        {
+            entry.Level = max;
+            entry.JobLevel = AnyMaxJobLevel;
+        }
+        for (int step = 0; step < 4 && ctx.Plan.NextJob(_job, entry.Sex, _random) is { } next && entry.Level >= next.Base; step++)
+            if (!await TakeJobAsync(next.Job, "promoted for its party", ct)) break;
         _boostedJob = _job;
         if (await ctx.GmAsync(entry.Account, $"!lvl {entry.Level} {AnyMaxJobLevel}", ct, ownRole: true))
         {
@@ -28,7 +38,7 @@ public sealed partial class FakePlayer
         }
         await MaxStatsAsync(ct);
         ctx.Roster.Save();
-        PopulationContext.Log($"{entry.Name}: boosted for its party (job {_job}: job level and skills at their caps, a level-capped build)");
+        PopulationContext.Log($"{entry.Name}: boosted for its party (level {entry.Level}, job {_job}: job level and skills at their caps, a level-capped build)");
     }
 
     /// <summary>The free points topped up to a level-capped character's (once: the bonus stays), then spent on the build.</summary>

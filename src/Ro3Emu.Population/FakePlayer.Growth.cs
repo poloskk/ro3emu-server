@@ -58,18 +58,27 @@ public sealed partial class FakePlayer
 
     /// <summary>
     /// Once a session: a role GM !job sent into a job nobody can take (WorldPlan.TakeableSibling: no weapon fits it, the
-    /// job tree goes no further) moves to a sibling it can take. A background GM line (the realm's fake players, one
-    /// every few seconds), at once for a real player's party member.
+    /// job tree goes no further) moves to a sibling it can take; then the role takes every later job its level allows
+    /// (WorldPlan.NextJob's TransformJobLevelLimit), since GrowAsync advances only with a level gained and a role at the
+    /// level cap would otherwise stay below its line's last job (and its skills). Background GM lines (the realm's fake
+    /// players, one every few seconds), at once for a real player's party member.
     /// </summary>
     private async Task FixJobAsync(CancellationToken ct)
     {
         if (_jobChecked || entry.Level == 0 || !entry.Prepared) return;
         _jobChecked = true;
-        if (ctx.Plan.TakeableSibling(_job, entry.Sex, entry.RoleId) is not { } job) return;
-        if (!await ctx.GmAsync(entry.Account, $"!job {job}", ct, background: !InParty)) { _jobChecked = false; return; }
-        PopulationContext.Log($"{entry.Name}: job {_job} cannot be taken; now job {job}");
+        if (ctx.Plan.TakeableSibling(_job, entry.Sex, entry.RoleId) is { } sibling && !await TakeJobAsync(sibling, "cannot be taken", ct)) return;
+        for (int step = 0; step < 4 && ctx.Plan.NextJob(_job, entry.Sex, _random) is { } next && entry.Level >= next.Base; step++)
+            if (!await TakeJobAsync(next.Job, "left behind at the level cap", ct)) return;
+    }
+
+    private async Task<bool> TakeJobAsync(long job, string why, CancellationToken ct)
+    {
+        if (!await ctx.GmAsync(entry.Account, $"!job {job}", ct, background: !InParty)) { _jobChecked = false; return false; }
+        PopulationContext.Log($"{entry.Name}: job {_job} {why}; now job {job}");
         _job = job;
         entry.Gear = ""; // its new job's set
         ctx.Roster.Save();
+        return true;
     }
 }

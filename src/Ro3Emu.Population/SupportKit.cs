@@ -5,8 +5,9 @@ using Ro3Emu.Server.Data.Config;
 namespace Ro3Emu.Population;
 
 /// <summary>How a support skill is cast: around the caster (SkillRelease FixCircle, the party in its radius), at the
-/// host, at the host when hurt, or at the host when dead.</summary>
-public enum SupportUse { Area, Ally, Heal, Revive }
+/// host, at the host (else the caster) when hurt, at a dead member, around the caster when the host or the caster in
+/// its radius is hurt (PartyHeal), or on the host's ground when it is hurt (GroundHeal).</summary>
+public enum SupportUse { Area, Ally, Heal, Revive, PartyHeal, GroundHeal }
 
 /// <summary>A support skill a fake player keeps on its party host: a SkillConfig group, the level learned, how it is used.</summary>
 public sealed record SupportSkill(int Group, int Level, SupportUse Use);
@@ -29,6 +30,8 @@ public sealed class SupportKit(GameData data)
     /// <summary>In casting order (the first found is learned first, when skill points run short).</summary>
     private static readonly (int Group, SupportUse Use)[] Skills =
     [
+        (14303, SupportUse.PartyHeal),  // Coluseo Heal (Archbishop): _iRelease 2 round the caster, 23 m, 5 targets
+        (14115, SupportUse.GroundHeal), // Sanctuary (Priest): _iRelease 7 on a ground point, 7 m, 4 targets
         (14007, SupportUse.Heal),   // Heal (Acolyte)
         (14301, SupportUse.Heal),   // Highness Heal (Archbishop)
         (11405, SupportUse.Heal),   // Heal (Crusader)

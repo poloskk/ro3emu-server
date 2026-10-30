@@ -13,8 +13,9 @@ public sealed partial class FakePlayer
 {
     /// <summary>The buffs are cast within this distance of the host (inside their radius, SkillConfig ${1}).</summary>
     private const float SupportReach = 6;
-    /// <summary>The host below this share of its life is healed.</summary>
-    private const double HealBelow = 0.9;
+    /// <summary>The host below this share of its life is healed (the player's choice: 40%), the healer itself below
+    /// <see cref="SelfHealBelow"/>.</summary>
+    private const double HealBelow = 0.4, SelfHealBelow = 0.9;
     /// <summary>An ally skill's reach when its SkillConfig row names none (_iDistanceMax).</summary>
     private const float AllyReach = 9;
     private static readonly TimeSpan CastPause = TimeSpan.FromSeconds(1.8);
@@ -23,9 +24,10 @@ public sealed partial class FakePlayer
     private readonly Dictionary<int, DateTime> _nextCast = [];
 
     /// <summary>
-    /// One support cast when one is due, heals first: the host below <see cref="HealBelow"/> in the heal's reach (the
-    /// other members drink potions), a dead member to revive, then the host's buffs while it is close. False when none
-    /// was cast.
+    /// One support cast when one is due, heals first: an area heal when the host in its radius is below
+    /// <see cref="HealBelow"/> or the healer below <see cref="SelfHealBelow"/>, a single heal for the host below it in
+    /// reach, else for the healer itself (the other members drink potions), a dead member to revive, then the host's buffs
+    /// while it is close. False when none was cast.
     /// </summary>
     private async Task<bool> SupportAsync(long host, CancellationToken ct)
     {
@@ -41,16 +43,23 @@ public sealed partial class FakePlayer
         {
             if (now < _nextCast.GetValueOrDefault(skill.Group) || ctx.Support.Row(skill.Group, skill.Level) is not { } row) continue;
             float reach = row.DistanceMax > 0 ? row.DistanceMax / 100f : AllyReach;
+            // Heals are for the host and the healer itself: the other members drink their own potions (FakePlayer.Potions).
+            bool hostHurt = !hostDead && hostLife < HealBelow, selfHurt = OwnLife() < SelfHealBelow;
+            float area = row.Range is [>= 100 and var cm, ..] ? cm / 100f : reach;
+            // A ground heal (Sanctuary) goes where the host stands.
+            var ground = skill.Use == SupportUse.GroundHeal && hostHurt && hostAt is { } spot && Distance(spot) <= reach ? spot : null;
             long? target = skill.Use switch
             {
-                // Heals are for the host alone: the other members drink their own potions (FakePlayer.Potions).
-                SupportUse.Heal => !hostDead && hostLife < HealBelow && hostAt is { } at && Distance(at) <= reach ? host : null,
+                SupportUse.PartyHeal => hostHurt && hostAt is { } near && Distance(near) <= area || selfHurt ? 0 : null,
+                SupportUse.GroundHeal => ground != null ? 0 : null,
+                SupportUse.Heal => hostHurt && hostAt is { } at && Distance(at) <= reach ? host : selfHurt ? _view.Self : null,
                 SupportUse.Revive => Patient(members, reach, m => m.Dead),
                 SupportUse.Ally => hostNear ? host : null,
                 _ => hostNear ? 0 : null,
             };
             if (target is not { } id) continue;
             var req = new CastSkillReq { SkillId = (int)row.Id, TargetId = id };
+            if (ground is { } g) req.TargetPos = new Vec3 { X = g.X, Y = g.Y, Z = g.Z };
             int result = CastSkillRsp.Parser.ParseFrom(await RequestAsync(CombatService.UseSkill, req, ct)).Result;
             _nextCast[skill.Group] = now + (result == 0 ? Recast(skill.Use) : TimeSpan.FromSeconds(result == ErrorCodes.SkillCooldown ? 1 : 20));
             if (result != 0) continue;
@@ -72,7 +81,7 @@ public sealed partial class FakePlayer
     /// <summary>A buff again before it wears off (inferred: the original buffs last minutes), a heal or revive soon.</summary>
     private TimeSpan Recast(SupportUse use) => use switch
     {
-        SupportUse.Heal => TimeSpan.FromSeconds(1),
+        SupportUse.Heal or SupportUse.PartyHeal or SupportUse.GroundHeal => TimeSpan.FromSeconds(1),
         SupportUse.Revive => TimeSpan.FromSeconds(10),
         _ => TimeSpan.FromSeconds(50 + _random.Next(30)),
     };
@@ -109,11 +118,25 @@ public sealed partial class FakePlayer
         _supportJob = _job;
         _support = support;
         _buffs = buffs;
-        // The strongest first: when several are ready, the hardest hit goes out (the player's wish).
-        _attacks = [.. attacks.OrderByDescending(a => ctx.Support.Power(a.Group, a.Level))];
+        _attacks = Strongest(attacks);
         var all = support.Select(k => $"{k.Group}:{k.Level}").Concat(buffs.Select(b => $"{b.Group}:{b.Level}"))
             .Concat(attacks.Select(k => $"{k.Group}:{k.Level}")).ToList();
         if (all.Count > 0) PopulationContext.Log($"{entry.Name}: skills {string.Join(", ", all)}");
+    }
+
+    /// <summary>A strong attack's share of the strongest one's damage multiplier: weaker ones are left out.</summary>
+    private const double StrongShare = 0.4;
+
+    /// <summary>
+    /// The attacks a bot uses, strongest first (when several are ready, the hardest hit goes out), without the weak
+    /// fillers an earlier job taught (the player's wish: below <see cref="StrongShare"/> of the strongest one's
+    /// multiplier, SupportKit.Power), keeping at least the two strongest. Between them it swings, or a caster waits.
+    /// </summary>
+    private List<AttackSkill> Strongest(IEnumerable<AttackSkill> attacks)
+    {
+        var ranked = attacks.Select(a => (Skill: a, Power: ctx.Support.Power(a.Group, a.Level))).OrderByDescending(a => a.Power).ToList();
+        long best = ranked.Count > 0 ? ranked[0].Power : 0;
+        return [.. ranked.Where((a, i) => i < 2 || a.Power >= best * StrongShare).Select(a => a.Skill)];
     }
 
     /// <summary>One skill (with its requirements) learned on top of <paramref name="learned"/>: the level reached, or 0.</summary>
@@ -173,7 +196,7 @@ public sealed partial class FakePlayer
         if (!await SwingAsync(normal, (long)target.Uuid, ct)) return false;
         // In a real player's party at the pace of its attack speed: a swing sent early waits on the server for the
         // next one (CombatService.DeferNormalAttackAsync), so a short pause loses no swing. Alone, a relaxed pace.
-        await Task.Delay(InParty ? TimeSpan.FromMilliseconds(350 + _random.Next(150)) : TimeSpan.FromSeconds(1.2 + _random.NextDouble() * 0.6), ct);
+        await Task.Delay(InParty ? TimeSpan.FromMilliseconds(600 + _random.Next(200)) : TimeSpan.FromSeconds(1.2 + _random.NextDouble() * 0.6), ct);
         return true;
     }
 
