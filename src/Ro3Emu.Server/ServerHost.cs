@@ -356,7 +356,9 @@ public static class ServerHost
         app.Services.GetRequiredService<AdventureGroupService>(); // creation-instance NPCs, group quest gate, scene hook
         app.Services.GetRequiredService<GuildCaravanService>(); // 05:00 settlement also covers offline orders
         app.Services.GetRequiredService<WildAfkService>(); // field drop accounting and Bonus Time ticker
-        app.Services.GetRequiredService<TeamService>(); // party card ticker
+        var teams = app.Services.GetRequiredService<TeamService>(); // party card ticker
+        if (app.Services.GetRequiredService<IOptions<ServerOptions>>().Value.PartyBotsMatchLeader)
+            app.Services.GetRequiredService<CharacterService>().StrengthSource = teams.BotLeader;
         app.Services.GetRequiredService<MvpService>(); // field MVP spawns and timers
         var territory = app.Services.GetRequiredService<TerritoryWarsService>();
         var escort = app.Services.GetRequiredService<TerritoryEscortService>();

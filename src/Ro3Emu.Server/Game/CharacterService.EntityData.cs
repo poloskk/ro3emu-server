@@ -88,6 +88,11 @@ public sealed partial class CharacterService
 
         var sheet = EquipmentStunts.ApplyConversions(session, raw, data);
         if (matchAttributes == null) sheet = EmblemService.ApplyResonanceConversions(session, raw, sheet, data);
+        if (matchAttributes == null && StrengthSource?.Invoke(session) is { } leader && !ReferenceEquals(leader, session))
+        {
+            var theirs = Stats(leader);
+            foreach (int id in MatchedAttributes) sheet[id] = Math.Max(sheet[id], theirs[id]);
+        }
         long maxHp = sheet[MaxHp], maxSp = sheet[MaxSp];
         sheet[Hp] = Math.Clamp(session.CurrentHp ?? maxHp, 0, maxHp);
         sheet[Sp] = Math.Clamp(session.CurrentSp ?? maxSp, 0, maxSp);
@@ -216,6 +221,16 @@ public sealed partial class CharacterService
 
     /// <summary>A match owner's replacement build (null: the character's own), e.g. a Survivor Battle career.</summary>
     public Func<GameSession, IReadOnlyList<(long Id, double Value)>?>? MatchAttributes { get; set; }
+
+    /// <summary>ServerOptions.PartyBotsMatchLeader: the real player whose combat attributes a fake player fights with at
+    /// least (TeamService.BotLeader), else null. That player's own sheet never asks again (it is no fake player).</summary>
+    public Func<GameSession, GameSession?>? StrengthSource { get; set; }
+
+    /// <summary>The combat attributes a party's fake player takes at least from its real player (AttributeConfig):
+    /// maxhp..rescri (101-112, not speed or attack speed), and the damage bonuses and resistances per_cri_dmg..
+    /// per_beremote_dmg (209-230) and per_atk_dmg1..per_res_dmg1 (1211-1216).</summary>
+    private static readonly int[] MatchedAttributes =
+        [.. Enumerable.Range(101, 12), .. Enumerable.Range(209, 22), .. Enumerable.Range(1211, 6)];
 
     /// <summary>Runtime properties such as an absorb shield, projected on full stats and late AOI snapshots.</summary>
     public List<Func<GameSession, IEnumerable<(int Id, long Value)>>> DynamicProperties { get; } = new();

@@ -67,6 +67,7 @@ public sealed partial class FakePlayer
                     if (!queue.Cancel && queue.ReadyQueue.TryGetValue(_view.Self, out bool ready) && !ready) ConfirmDungeon();
                     break;
                 case DungeonService.ConfirmReminderNotify: ConfirmDungeon(); break;
+                case CombatService.UseInSkill or CombatService.UseInSkillHigh: OnBossSkill(UseInSkillInfo.Parser.ParseFrom(e.Body)); break;
             }
         }
         catch (Google.Protobuf.InvalidProtocolBufferException) { }
@@ -220,7 +221,9 @@ public sealed partial class FakePlayer
             return true;
         }
         if (at is not { } p) { await PauseAsync(2, 4, ct); return true; }
-        // Run from a boss when low, then drink (FakePlayer.Potions); low anywhere, drink.
+        // Out of a boss's marked area (FakePlayer.Dodge); run from a boss when low, then drink (FakePlayer.Potions); low
+        // anywhere, drink.
+        if (await DodgeAsync(ct)) return true;
         if (await EvadeAsync(ct)) { await DrinkAsync(ct); return true; }
         if (await DrinkAsync(ct)) return true;
         if (await SupportAsync(host, ct)) return true; // heals are for the host; revives reach the whole party
@@ -268,6 +271,8 @@ public sealed partial class FakePlayer
             float own = AttackReach() is >= RangedReach and var far ? far : 3f, now = Distance(at);
             bool move = now > own - 0.4f || own >= RangedReach && now < 3f;
             var place = BossPlace(at);
+            // Not back into a marked area while it lasts (FakePlayer.Dodge): it waits at the edge.
+            if (move && InDanger(place)) { await Task.Delay(500, ct); return; }
             if (move && Distance(place) > 1f && !await GoAsync(new MapPoint(place.X, place.Y, place.Z, 0), ct)) { await ShuffleAsync(6, ct); return; }
         }
         else if (Distance(at) > reach && !await GoAsync(new MapPoint(at.X, at.Y, at.Z, 0), ct, short_: reach - 1)) { await ShuffleAsync(6, ct); return; }
@@ -276,6 +281,7 @@ public sealed partial class FakePlayer
         // Its job's attack skills when ready, else the normal attack (FakePlayer.Support.AttackOnceAsync).
         for (int swing = 0; swing < (InParty ? PartyStrikes : 6) && _view.Monsters().FirstOrDefault(m => m.Uuid == target.Uuid) is { } current; swing++)
         {
+            if (await DodgeAsync(ct)) return; // out of a boss's marked area first: its place is found again next round
             if (await EvadeAsync(ct)) { await DrinkAsync(ct); return; }
             if (InParty) await DrinkAsync(ct);
             if (Marked() is { } mark && mark.Uuid != current.Uuid) return;

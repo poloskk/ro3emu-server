@@ -96,6 +96,25 @@ public sealed partial class TeamService(SessionRegistry sessions, CharacterServi
     public (long TeamId, long Leader) TeamOf(long role) =>
         _byMember.TryGetValue(role, out var team) ? (team.Id, team.Leader) : (0, role);
 
+    /// <summary>
+    /// For a fake player (ServerOptions.FakePlayerAccountPrefix) in a party with a real player: that player's online session
+    /// (the leader when real, else the first real member), whose combat attributes it fights with at least
+    /// (CharacterService.StrengthSource, ServerOptions.PartyBotsMatchLeader). Null for anyone else.
+    /// </summary>
+    public GameSession? BotLeader(GameSession s)
+    {
+        if (s.Role is not { } role || !IsFakePlayer(s.Account) || !_byMember.TryGetValue(role.Id, out var team)) return null;
+        if (team.Leader != role.Id && Session(team.Leader) is { Progress: not null } leader && !IsFakePlayer(leader.Account)) return leader;
+        foreach (long member in team.Members)
+            if (member != role.Id && member != team.Leader && Session(member) is { Progress: not null } other && !IsFakePlayer(other.Account))
+                return other;
+        return null;
+    }
+
+    private static bool IsFakePlayer(string? account) =>
+        account != null && account.StartsWith(ServerOptions.FakePlayerAccountPrefix, StringComparison.Ordinal)
+        && account.Length > ServerOptions.FakePlayerAccountPrefix.Length && account[ServerOptions.FakePlayerAccountPrefix.Length..].All(char.IsAsciiDigit);
+
     /// <summary>Authoritative roster, including offline members; dungeon admission must not silently omit them.</summary>
     public IReadOnlyList<long> MembersOf(long role) =>
         _byMember.TryGetValue(role, out var team) ? team.Members.ToArray() : [role];

@@ -105,6 +105,14 @@ public sealed class SupportKit(GameData data)
     /// <summary>How far a skill reaches in metres (SkillConfig._iDistanceMax in cm), 0 when unknown.</summary>
     public float Reach(long skillId) => SkillConfig.Get(data, skillId)?.DistanceMax is > 0 and var cm ? cm / 100f : 0;
 
+    /// <summary>A skill's area radius in metres (SkillConfig._kRange[0] in cm, as BossSkillSets reads a boss skill's), 0
+    /// when it names none.</summary>
+    public float AreaRadius(long skillId) => SkillConfig.Get(data, skillId)?.Range is [>= 100 and var cm, ..] ? cm / 100f : 0;
+
+    /// <summary>A skill that strikes an area, not one target: _iRelease other than 1 (single target) with an area radius.
+    /// A boss's swings are release 1 without one (in-game 30.10: every boss area cast was release 2 or 4, 10-20 m).</summary>
+    public bool StrikesArea(long skillId) => SkillConfig.Get(data, skillId) is { Release: not 1 } && AreaRadius(skillId) > 0;
+
     /// <summary>A class that fights with spells: most of its attack skills are magic (a Wizard has one physical Spell
     /// Smash among its spells). It never swings a normal attack.</summary>
     public static bool Casts(IReadOnlyCollection<AttackSkill> attacks) => attacks.Count(a => a.Magic) * 2 > attacks.Count;

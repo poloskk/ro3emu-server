@@ -89,7 +89,7 @@ public sealed class Roster
                 : random.NextDouble() < 0.3 ? Persona.Idler : Persona.Townie;
             Players.Add(new RosterEntry
             {
-                Account = $"pop{Players.Count + 1:D4}",
+                Account = $"{Ro3Emu.Server.ServerOptions.FakePlayerAccountPrefix}{Players.Count + 1:D4}",
                 Name = name,
                 Sex = sex,
                 Town = vendorTown ?? towns[random.Next(towns.Count)],

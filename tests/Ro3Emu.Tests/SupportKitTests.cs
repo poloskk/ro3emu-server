@@ -86,4 +86,15 @@ public sealed class SupportKitTests
         Assert.Contains(kit.ClassItems(3200), i => i.Type == 1); // the falcon
         Assert.Empty(kit.ClassItems(2100));
     }
+
+    /// <summary>A boss's area casts are dodged, not its swings (FakePlayer.Dodge): the 30.10 field MVP fight's casts.</summary>
+    [ClientDataFact]
+    public void ABossesAreaSkillsAreToldFromItsSwings()
+    {
+        var kit = Kit.Value;
+        Assert.True(kit.StrikesArea(5201501)); // release 2, 20 m round the boss
+        Assert.Equal(20f, kit.AreaRadius(5201501));
+        Assert.True(kit.StrikesArea(5201401)); // release 4, 13 m ahead
+        Assert.False(kit.StrikesArea(5204001)); // a swing: release 1, no area
+    }
 }

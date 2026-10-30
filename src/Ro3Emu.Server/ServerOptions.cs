@@ -96,6 +96,16 @@ public sealed class ServerOptions
     /// <summary>Monster kill EXP as a multiple of the original's (inferred, not original: a realm policy; 1 = the client's tables).</summary>
     public double ExpRate { get; set; } = 1;
 
+    /// <summary>The fake players' accounts (Ro3Emu.Population: "pop0001"...).</summary>
+    public const string FakePlayerAccountPrefix = "pop";
+
+    /// <summary>
+    /// A fake player in a real player's party fights with at least that player's combat attributes (CharacterService.Stats:
+    /// HP, attack, defence, hit, flee, critical and the damage bonuses and resistances), so the party's bots are as strong
+    /// as the one they follow (not original: a realm policy for an offline realm).
+    /// </summary>
+    public bool PartyBotsMatchLeader { get; set; } = true;
+
     /// <summary>Sacred Relic Crystals from elite, mini-boss and MVP kills, rarely from ordinary ones (inferred, not
     /// original: a realm policy; off by default).</summary>
     public CrystalDropOptions CrystalDrops { get; set; } = new();
