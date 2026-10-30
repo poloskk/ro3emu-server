@@ -32,7 +32,6 @@ namespace Ro3Emu.ClientHooks
     /// <item>The monthly pass buttons order in game instead of opening the publisher's web shop (MonthCardShop).</item>
     /// <item>A bug: without a store SDK the pay manager's Init recursed until the C stack overflowed; it orders
     /// without the SDK (PaySdk).</item>
-    /// <item>A player's choice: auto battle moves on from a monster it has not hit in 3 s (AutoTargetSwitch).</item>
     /// </list>
     /// </summary>
     public static class LuaPatches
@@ -107,7 +106,6 @@ namespace Ro3Emu.ClientHooks
                 PersonalCards.Install((Obf_R.Obf_Cf)env, Module(manager, global, "lc_dal_personal"));
                 MonthCardShop.Install(manager, global);
                 PaySdk.Install(manager, global);
-                AutoTargetSwitch.Install(global, Module(manager, global, "lc_autoattack_attacksubstate"), Module(manager, global, "lc_autoattackhelper"));
                 Debug.Log("[Ro3Emu.LuaPatches] lc_itemshowfunc: " + added + " card show-func method(s) added; stall name limit "
                     + (param != null ? StallNameMaxLength.ToString() : "not set (publicparamconfig missing)"));
             }
