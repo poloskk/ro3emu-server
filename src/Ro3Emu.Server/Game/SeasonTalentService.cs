@@ -230,12 +230,18 @@ public sealed partial class SeasonTalentService
         _data.Row("SeasonTalentConfig", kv.Key) is not { } row || GameData.Int(row, "_iType") == ChoiceNodeType ? 0
             : Math.Max(0, GameData.Int(row, "_iType") == PvpNodeType ? state.BattleOathLevel : kv.Value.CurrentLevel));
 
+    private Dictionary<(long Group, long Level), JsonElement[]>? _effectRows;
+
     private JsonElement? Effect(long group, long level, int career)
     {
+        // Indexed once by (_iGroup, _iLevel), in table order: every Stats sheet asks for each bought talent, and a scan
+        // of the whole table per talent took 57% of the loop with a party of strengthened fake players (in-game 31.10).
+        _effectRows ??= _data.Table("SeasonTalentEffectConfig").Values
+            .GroupBy(r => (GameData.Int(r, "_iGroup"), GameData.Int(r, "_iLevel"))).ToDictionary(g => g.Key, g => g.ToArray());
+        if (!_effectRows.TryGetValue((group, level), out var rows)) return null;
         JsonElement? generic = null;
-        foreach (var row in _data.Table("SeasonTalentEffectConfig").Values)
+        foreach (var row in rows)
         {
-            if (GameData.Int(row, "_iGroup") != group || GameData.Int(row, "_iLevel") != level) continue;
             if (!row.TryGetProperty("_iJobId", out var jobs) || jobs.ValueKind != JsonValueKind.Array || jobs.GetArrayLength() == 0)
                 generic = row;
             else if (jobs.EnumerateArray().Any(j => GameData.Number(j) == career)) return row;
