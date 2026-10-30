@@ -6,13 +6,15 @@ namespace Ro3Emu.Server.Game;
 /// <summary>
 /// A player in auto battle whose skill is refused because a wall is in the way (3026 "Invalid skill wall-piercing
 /// level", ValidateTarget's _iPassBlock 2 line check) keeps casting at the same monster from the same spot: the client
-/// has no such check. The server steps the player (SceneService.TeleportInMapAsync) to the nearest point within 5 m
-/// that it can walk to in a straight line and that has a clear line to the monster; with none, a short random step.
-/// At most once per <see cref="StepInterval"/>. A player's choice, not the original server's.
+/// has no such check. The server walks the player to the nearest point within 8 m that it can walk to in a straight
+/// line and that has a clear line to the monster; with none, a short random step. The walk is the client's own:
+/// MovementChangeNtf MoveTransServerControl makes LC_Scene_Sync._syncUnitMoveState call SetMoveTargetPos on the
+/// controlled unit, and the client's walks then move it on the server as usual. At most once per
+/// <see cref="StepInterval"/>. A player's choice, not the original server's.
 /// </summary>
 public sealed partial class CombatService
 {
-    private static readonly float[] StepRadii = [1.5f, 2.5f, 3.5f, 5f];
+    private static readonly float[] StepRadii = [1.5f, 2.5f, 3.5f, 5f, 6.5f, 8f];
     private const float RandomStep = 2.5f;
     private const int StepDirections = 16;
     private static readonly TimeSpan StepInterval = TimeSpan.FromSeconds(2);
@@ -22,10 +24,22 @@ public sealed partial class CombatService
         if (!s.AutoBattle || DateTime.UtcNow < s.NextBlockedStepUtc || _worldData.Map(s.SceneEntry)?.Nav is not { } nav
             || FindMonster(s.WorldScene, req.TargetId) is not { } monster) return;
         s.NextBlockedStepUtc = DateTime.UtcNow + StepInterval;
-        var to = ClearSpot(nav, s.Position, monster.Pos, Random.Shared) ?? RandomStepEnd(nav, s.Position, Random.Shared);
+        var from = s.Position;
+        var clear = ClearSpot(nav, from, monster.Pos, Random.Shared);
+        var to = clear ?? RandomStepEnd(nav, from, Random.Shared);
+        _log.LogInformation("{Role} blocked by a wall at ({X:F1}, {Z:F1}) from monster {Monster} at ({MX:F1}, {MZ:F1}): {Step}",
+            s.Role!.Name, from.X, from.Z, monster.Template.NpcId, monster.X, monster.Z,
+            to == null ? "no way to step" : $"{(clear != null ? "walks to a clear spot" : "random step")} ({to.X:F1}, {to.Z:F1})");
         if (to == null) return;
-        float face = MathF.Atan2(monster.X - to.X, monster.Z - to.Z) * 180 / MathF.PI;
-        await _scene.TeleportInMapAsync(s, new MapPoint(to.X, to.Y, to.Z, face));
+        await s.SendGameAsync(GameAoiSink.MovementChange, new MovementChangeNtf
+        {
+            Uid = s.Role.Id, TransType = MovementTransitionType.MoveTransServerControl,
+            MovementInfo = new MovementInfo
+            {
+                Pos = to, Face = MathF.Atan2(monster.X - to.X, monster.Z - to.Z) * 180 / MathF.PI,
+                ServerTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            },
+        });
     }
 
     /// <summary>

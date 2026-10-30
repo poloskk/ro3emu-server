@@ -11,7 +11,7 @@ public sealed partial class SkillCombatTests
 
     /// <summary>
     /// A real wall of the starting map between the player and a monster in reach: in auto battle the refused basic
-    /// attack (3026) steps the player to a spot with a clear line; out of auto battle it stays where it is.
+    /// attack (3026) walks the player (MoveTransServerControl) to a spot with a clear line; out of auto battle it stays where it is.
     /// </summary>
     [ClientDataFact]
     public async Task AutoBattleStepsPastAWallThatBlocksItsAttack()
@@ -39,13 +39,16 @@ public sealed partial class SkillCombatTests
         await Loop.InvokeAsync(() => { Session("alice").AutoBattle = true; return Task.CompletedTask; });
         await alice.SendGameAsync(CombatService.UseSkill, new CastSkillReq { SkillId = BasicAttack, TargetId = monster.Uid });
         Assert.Equal(ErrorCodes.SkillBlocked, (await Next(alice, CombatService.UseSkill, CastSkillRsp.Parser)).Result);
-        // The setup's teleport sent one too: the step is the move away from the start.
+        // The setup's teleport sent one too: the step is the client walk the server asks for.
         var moved = await Next(alice, GameAoiSink.MovementChange, MovementChangeNtf.Parser,
-            m => m.Uid == (long)alice.Self!.Uuid && !m.MovementInfo.Pos.Equals(start));
+            m => m.Uid == (long)alice.Self!.Uuid && m.TransType == MovementTransitionType.MoveTransServerControl);
         var to = moved.MovementInfo.Pos;
-        Assert.True(MonsterService.Distance(start.X, start.Z, to.X, to.Z) <= 5.01f);
+        Assert.NotEqual(start, to);
+        Assert.True(MonsterService.Distance(start.X, start.Z, to.X, to.Z) <= 8.01f);
+        Assert.True(nav.CanWalk(start.X, start.Y, start.Z, to.X, to.Z));
         Assert.True(nav.CanWalk(to.X, to.Y, to.Z, monster.X, monster.Z));
-        await Loop.InvokeAsync(() => { Assert.Equal(to, Session("alice").Position); return Task.CompletedTask; });
+        // The client walks there and reports its walks; the server does not move it.
+        await Loop.InvokeAsync(() => { Assert.Equal(start, Session("alice").Position); return Task.CompletedTask; });
     }
 
     /// <summary>
