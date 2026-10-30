@@ -109,6 +109,7 @@ public sealed partial class CombatService
         if (error != 0)
         {
             await RefuseCastAsync(s, req, error, errorParam);
+            if (error == ErrorCodes.SkillBlocked && owned == null) await StepPastWallAsync(s, req);
             return;
         }
         if (owned == null && new SkillConfig(row!.Value).IsNormalAtk == 1 && Now < s.NormalAttackReadyMs

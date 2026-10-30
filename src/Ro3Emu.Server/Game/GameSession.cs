@@ -432,6 +432,9 @@ public sealed class GameSession(PhonestChannel channel, TrafficLog traffic)
     /// <summary>31054 SKILL_SET_AUTO_BATTLE: the client's auto-battle switch.</summary>
     public bool AutoBattle { get; set; }
 
+    /// <summary>CombatService.StepPastWallAsync: when auto battle may step this player past a wall again.</summary>
+    internal DateTime NextBlockedStepUtc { get; set; }
+
     /// <summary>5035 field Bonus Time, daily consumption and drop history; transient activity never survives logout.</summary>
     public WildAfkService.State? WildAfk { get; set; }
 
