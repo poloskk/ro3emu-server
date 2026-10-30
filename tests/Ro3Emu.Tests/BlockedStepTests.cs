@@ -36,14 +36,23 @@ public sealed class BlockedStepTests
         var nav = Grid(wallTo: 3);
         Vec3 from = new() { X = 13.5f, Z = 3.5f }, target = new() { X = 17.5f, Z = 3.5f };
         Assert.False(nav.CanWalk(from.X, from.Y, from.Z, target.X, target.Z));
-        for (int seed = 0; seed < 20; seed++)
-        {
-            var spot = CombatService.ClearSpot(nav, from, target, new Random(seed));
-            Assert.NotNull(spot);
-            Assert.True(nav.CanWalk(from.X, from.Y, from.Z, spot!.X, spot.Z));
-            Assert.True(nav.CanWalk(spot.X, spot.Y, spot.Z, target.X, target.Z));
-            Assert.True(MathF.Sqrt((spot.X - from.X) * (spot.X - from.X) + (spot.Z - from.Z) * (spot.Z - from.Z)) <= 5.01f);
-        }
+        var spot = CombatService.ClearSpot(nav, from, target);
+        Assert.NotNull(spot);
+        Assert.NotNull(nav.WalkHeight(spot!.X, spot.Z, 0));
+        Assert.True(nav.CanWalk(spot.X, spot.Y, spot.Z, target.X, target.Z));
+        Assert.True(MathF.Sqrt((spot.X - from.X) * (spot.X - from.X) + (spot.Z - from.Z) * (spot.Z - from.Z)) <= 10.01f);
+    }
+
+    /// <summary>The clear side of a rock is seldom a straight walk away: the client paths there itself.</summary>
+    [Fact]
+    public void AClearSpotBehindTheWallIsTakenAsWell()
+    {
+        var nav = Grid(wallTo: 8);
+        Vec3 from = new() { X = 14.5f, Z = 4.5f }, target = new() { X = 16.5f, Z = 4.5f };
+        var spot = CombatService.ClearSpot(nav, from, target);
+        Assert.NotNull(spot);
+        Assert.True(spot!.X >= 16, "the only clear line is from the target's side of the wall");
+        Assert.False(nav.CanWalk(from.X, from.Y, from.Z, spot.X, spot.Z));
     }
 
     [Fact]
@@ -51,7 +60,7 @@ public sealed class BlockedStepTests
     {
         var nav = Grid(wallTo: Size - 1);
         Vec3 from = new() { X = 13.5f, Z = 14.5f }, target = new() { X = 17.5f, Z = 14.5f };
-        Assert.Null(CombatService.ClearSpot(nav, from, target, new Random(1)));
+        Assert.Null(CombatService.ClearSpot(nav, from, target));
         var step = CombatService.RandomStepEnd(nav, from, new Random(1));
         Assert.NotNull(step);
         Assert.True(nav.CanWalk(from.X, from.Y, from.Z, step!.X, step.Z));

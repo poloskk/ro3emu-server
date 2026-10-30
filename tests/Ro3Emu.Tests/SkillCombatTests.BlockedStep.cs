@@ -8,6 +8,7 @@ namespace Ro3Emu.Tests;
 public sealed partial class SkillCombatTests
 {
     private const int BasicAttack = 1000001; // _iPassBlock 2, _iDistanceMax 300
+    private const int GroundSkill = 1231101, GroundSkillGroup = 12311; // _iRelease 8, _iPassBlock 2, _iDistanceMax 1200
 
     /// <summary>
     /// A real wall of the starting map between the player and a monster in reach: in auto battle the refused basic
@@ -44,11 +45,19 @@ public sealed partial class SkillCombatTests
             m => m.Uid == (long)alice.Self!.Uuid && m.TransType == MovementTransitionType.MoveTransServerControl);
         var to = moved.MovementInfo.Pos;
         Assert.NotEqual(start, to);
-        Assert.True(MonsterService.Distance(start.X, start.Z, to.X, to.Z) <= 8.01f);
-        Assert.True(nav.CanWalk(start.X, start.Y, start.Z, to.X, to.Z));
+        Assert.True(MonsterService.Distance(start.X, start.Z, to.X, to.Z) <= 10.01f);
         Assert.True(nav.CanWalk(to.X, to.Y, to.Z, monster.X, monster.Z));
         // The client walks there and reports its walks; the server does not move it.
         await Loop.InvokeAsync(() => { Assert.Equal(start, Session("alice").Position); return Task.CompletedTask; });
+
+        // A ground skill aimed at the monster's feet (no target id, as auto battle casts them).
+        await Teach("alice", GroundSkillGroup);
+        await Loop.InvokeAsync(() => { Session("alice").NextBlockedStepUtc = default; return Task.CompletedTask; });
+        await alice.SendGameAsync(CombatService.UseSkill, new CastSkillReq { SkillId = GroundSkill, TargetPos = monster.Pos });
+        Assert.Equal(ErrorCodes.SkillBlocked, (await Next(alice, CombatService.UseSkill, CastSkillRsp.Parser)).Result);
+        var walked = await Next(alice, GameAoiSink.MovementChange, MovementChangeNtf.Parser,
+            m => m.Uid == (long)alice.Self!.Uuid && m.TransType == MovementTransitionType.MoveTransServerControl);
+        Assert.True(nav.CanWalk(walked.MovementInfo.Pos.X, walked.MovementInfo.Pos.Y, walked.MovementInfo.Pos.Z, monster.X, monster.Z));
     }
 
     /// <summary>
@@ -71,7 +80,7 @@ public sealed partial class SkillCombatTests
                                 float ax = x + reach * MathF.Sin(d * MathF.PI / 4), az = z + reach * MathF.Cos(d * MathF.PI / 4);
                                 if (nav.WalkHeight(ax, az, y) is not { } ay || MathF.Abs(ay - y) > 0.5f || nav.CanWalk(x, y, z, ax, az)) continue;
                                 var at = new Vec3 { X = ax, Y = ay, Z = az };
-                                if (CombatService.ClearSpot(nav, from, at, new Random(0)) != null) return (from, at);
+                                if (CombatService.ClearSpot(nav, from, at) != null) return (from, at);
                             }
                     }
         throw new InvalidOperationException("no wall near the starting point");
