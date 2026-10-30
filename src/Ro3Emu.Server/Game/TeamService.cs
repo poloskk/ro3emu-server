@@ -99,11 +99,13 @@ public sealed partial class TeamService(SessionRegistry sessions, CharacterServi
     /// <summary>
     /// For a fake player (ServerOptions.FakePlayerAccountPrefix) in a party with a real player: that player's online session
     /// (the leader when real, else the first real member), whose combat attributes it fights with at least
-    /// (CharacterService.StrengthSource, ServerOptions.PartyBotsMatchLeader). Null for anyone else.
+    /// (CharacterService.StrengthSource, ServerOptions.PartyBotsMatchLeader). Null for anyone else, and in a siege (a
+    /// territory war battle or a city siege): there the fake players fight the other guilds with their own strength.
     /// </summary>
     public GameSession? BotLeader(GameSession s)
     {
-        if (s.Role is not { } role || !IsFakePlayer(s.Account) || !_byMember.TryGetValue(role.Id, out var team)) return null;
+        if (s.Role is not { } role || !IsFakePlayer(s.Account) || s.TerritoryBattle != null || s.SiegeBattle != null
+            || !_byMember.TryGetValue(role.Id, out var team)) return null;
         if (team.Leader != role.Id && Session(team.Leader) is { Progress: not null } leader && !IsFakePlayer(leader.Account)) return leader;
         foreach (long member in team.Members)
             if (member != role.Id && member != team.Leader && Session(member) is { Progress: not null } other && !IsFakePlayer(other.Account))

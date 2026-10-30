@@ -102,7 +102,7 @@ public sealed class ServerOptions
     /// <summary>
     /// A fake player in a real player's party fights with at least that player's combat attributes (CharacterService.Stats:
     /// HP, attack, defence, hit, flee, critical and the damage bonuses and resistances), so the party's bots are as strong
-    /// as the one they follow (not original: a realm policy for an offline realm).
+    /// as the one they follow, outside sieges (not original: a realm policy for an offline realm).
     /// </summary>
     public bool PartyBotsMatchLeader { get; set; } = true;
 

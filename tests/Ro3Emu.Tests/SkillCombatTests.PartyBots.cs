@@ -9,7 +9,7 @@ public sealed partial class SkillCombatTests
 {
     /// <summary>
     /// ServerOptions.PartyBotsMatchLeader: a fake player (account "pop...") fights with at least its real party leader's
-    /// combat attributes, and only while in that party; a real player's own sheet is untouched.
+    /// combat attributes, only while in that party and not in a siege; a real player's own sheet is untouched.
     /// </summary>
     [ClientDataFact]
     public async Task APartysFakePlayerFightsWithItsLeadersAttributes()
@@ -32,6 +32,18 @@ public sealed partial class SkillCombatTests
         var partied = Sheet("pop0001");
         for (int i = 0; i < combat.Length; i++) Assert.True(partied[i] >= leader[i], $"attribute {combat[i]}: {partied[i]} < {leader[i]}");
         Assert.Equal(leader, Sheet("alice"));
+
+        // In a siege the fake players fight the other guilds with their own strength. Only the bot's battle matters,
+        // not what it is: an empty one stands for it.
+        await Loop.InvokeAsync(() =>
+        {
+            Session("pop0001").TerritoryBattle = (TerritoryWarsService.Battle)System.Runtime.CompilerServices.RuntimeHelpers
+                .GetUninitializedObject(typeof(TerritoryWarsService.Battle));
+            return Task.CompletedTask;
+        });
+        Assert.Equal(alone, Sheet("pop0001"));
+        await Loop.InvokeAsync(() => { Session("pop0001").TerritoryBattle = null; return Task.CompletedTask; });
+        Assert.Equal(partied, Sheet("pop0001"));
 
         await bot.SendGameAsync(TeamService.TeamLeave, new LeaveTeamReq());
         Assert.Equal(0, (await Next(bot, TeamService.TeamLeave, LeaveTeamResp.Parser)).Result);
