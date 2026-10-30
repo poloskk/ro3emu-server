@@ -119,7 +119,7 @@ public sealed partial class FakePlayer
                 _hostOfflineSince = null;
             }
             PopulationContext.Log($"{entry.Name}: joined the party of {invite.InviteGuid}");
-            _gearAfter = DateTime.UtcNow; // a real player's party member wears its set now, not at its turn in the spread
+            _gearAfter = _growAfter = DateTime.UtcNow; // a real player's party member gears up now, not at its turn in the spread
         }
         catch (Exception e) when (e is TimeoutException or IOException or OperationCanceledException) { }
     }
@@ -259,9 +259,15 @@ public sealed partial class FakePlayer
     {
         var at = target.MovementInfo.Pos;
         // Alone a boss is fought with skills from afar (FakePlayer.Evade); in a party, up close beside its players.
-        bool boss = !InParty && ctx.Support.IsBoss((long)target.EntityTemplateID);
+        bool anyBoss = ctx.Support.IsBoss((long)target.EntityTemplateID), boss = !InParty && anyBoss;
         float reach = boss ? BossRange : 3f;
-        if (Distance(at) > reach && !await GoAsync(new MapPoint(at.X, at.Y, at.Z, 0), ct, short_: reach - 1)) { await ShuffleAsync(6, ct); return; }
+        if (InParty && anyBoss)
+        {
+            // Round a boss each party member takes its own place, not one heap on the boss (the player's wish).
+            var place = BossPlace(at);
+            if (Distance(place) > 1.5f && !await GoAsync(new MapPoint(place.X, place.Y, place.Z, 0), ct)) { await ShuffleAsync(6, ct); return; }
+        }
+        else if (Distance(at) > reach && !await GoAsync(new MapPoint(at.X, at.Y, at.Z, 0), ct, short_: reach - 1)) { await ShuffleAsync(6, ct); return; }
         long skill = ctx.Plan.NormalAttack(_job) is > 0 and var s ? s : FallbackAttack;
         await SendAsync(CombatService.LockEnemy, new LockEnemyReq { EnemyId = (long)target.Uuid }, ct);
         // Its job's attack skills when ready, else the normal attack (FakePlayer.Support.AttackOnceAsync).
@@ -272,6 +278,38 @@ public sealed partial class FakePlayer
             if (Marked() is { } mark && mark.Uuid != current.Uuid) return;
             if (!await AttackOnceAsync(current, skill, ct, skillsOnly: boss)) { await ReviveAsync(ct); return; }
         }
+    }
+
+    /// <summary>
+    /// This bot's own place round a boss at <paramref name="at"/>: its angle by the golden angle of its role id (members
+    /// fall all round, none on another's spot), close in for those who swing (one of three rings within the 3 m of a
+    /// normal attack), kept at a distance by those who fight from afar (<see cref="AttackReach"/> 5 m or more: mages,
+    /// archers, snipers), 5-8 m out and within their reach. A walkable point is taken as it is; over a wall or a cliff
+    /// the boss itself.
+    /// </summary>
+    private Vec3 BossPlace(Vec3 at)
+    {
+        const double GoldenAngle = 2.39996322972865332; // radians
+        long id = entry.RoleId;
+        double angle = id % 997 * GoldenAngle;
+        float reach = AttackReach();
+        float ring = reach >= RangedReach ? Math.Clamp(5f + id % 4, 4f, reach - 1) : 1.6f + id % 3 * 0.5f;
+        float x = at.X + ring * (float)Math.Sin(angle), z = at.Z + ring * (float)Math.Cos(angle);
+        return Map?.Nav is { } nav && nav.WalkHeight(x, z, at.Y) is { } y && nav.CanWalk(at.X, at.Y, at.Z, x, z)
+            ? new Vec3 { X = x, Y = y, Z = z } : at;
+    }
+
+    /// <summary>A reach from which a party member keeps its distance from a boss.</summary>
+    private const float RangedReach = 5;
+
+    /// <summary>How far this bot hits from: a caster's spells (the shortest of its attack skills: every one must reach),
+    /// anyone else's normal attack (a bow's, a gun's or a weapon's).</summary>
+    private float AttackReach()
+    {
+        if (Caster && _attacks.Count > 0)
+            return _attacks.Select(a => ctx.Support.Row(a.Group, a.Level)?.DistanceMax is > 0 and var cm ? cm / 100f : 0)
+                .Where(r => r > 0).DefaultIfEmpty(0).Min();
+        return ctx.Plan.NormalAttack(_job) is > 0 and var normal ? ctx.Support.Reach(normal) : 0;
     }
 
     private static float Apart(Vec3 a, Vec3 b)

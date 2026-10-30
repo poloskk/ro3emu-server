@@ -43,6 +43,8 @@ public sealed partial class MonsterService : MonsterBrain, IGameTicker
 
     /// <summary>A walk segment is capped so a monster seen mid-way is re-synchronized soon.</summary>
     private const float MaxSegment = 12f;
+    /// <summary>A monster back home heals once it has not fought for this long (ms).</summary>
+    internal const long ResetQuietMs = 10_000;
 
     private readonly Dictionary<int, MonsterTemplate?> _templates = new();
     private sealed class SpawnState
@@ -421,7 +423,9 @@ public sealed partial class MonsterService : MonsterBrain, IGameTicker
                 return;
             }
         }
-        if (m.Returning && !m.Moving)
+        // Home again, it heals only once nobody has fought it for a while: a boss dragged past its leash by one
+        // fighter and still being hit by another keeps its wounds (inferred).
+        if (m.Returning && !m.Moving && now - m.LastCombatMs >= ResetQuietMs)
         {
             m.Returning = false;
             if (m.Hp < m.Template.MaxHp)

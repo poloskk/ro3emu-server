@@ -45,6 +45,8 @@ public sealed class RosterEntry
     public bool FreeAgent { get; set; }
     /// <summary>The guild the role is in: its id, -1 a guild the population did not see the id of, 0 none.</summary>
     public long GuildId { get; set; }
+    /// <summary>FakePlayer.Boost gave the stat points of a level-capped character (once: they stay).</summary>
+    public bool CapStats { get; set; }
 }
 
 /// <summary>The roster file (data/population/roster.json): grows to the requested count, never reshuffles.</summary>

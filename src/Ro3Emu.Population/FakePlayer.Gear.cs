@@ -8,17 +8,18 @@ namespace Ro3Emu.Population;
 /// at a time (31404) and raises its talents (83550), each paid at its configured cost. What it wears, each grid's level
 /// and each talent's level are in the roster, so a login sends nothing new. The gear and the materials come from GM
 /// !kit (one grant in the bot's own scope, never the realm's); the talent panel opens with its two quests (GM !quest
-/// done, once, also in the bot's own scope). A bot that joins a real player's party gears up at once. A population choice (inferred): the original
-/// server had only real players.
+/// done, once, also in the bot's own scope). A bot that joins a real player's party gears up at once and grows its gear
+/// to its caps at once. A population choice (inferred): the original server had only real players.
 /// </summary>
 public sealed partial class FakePlayer
 {
-    private const int StrengthenSteps = 2, TalentsPerStep = 2;
+    private const int StrengthenSteps = 2, TalentsPerStep = 2, PartyStrengthenSteps = 10, PartyTalentsPerStep = 10, PartyGrowRounds = 30;
     private DateTime _gearAfter, _growAfter;
     private readonly HashSet<long> _talentsClosed = [];
 
-    /// <summary>Red (quality 6) for a guild leader, gold (5) for the others; a two- or one-handed weapon fixed per role.</summary>
-    private int GearQuality => entry.GuildLeader ? 6 : 5;
+    /// <summary>Red (quality 6) for everyone (the player's wish; guild leaders only before); a two- or one-handed weapon
+    /// fixed per role.</summary>
+    private const int GearQuality = 6;
     private bool TwoHanded => entry.RoleId % 2 == 0;
 
     private async Task GearStepAsync(CancellationToken ct)
@@ -43,8 +44,10 @@ public sealed partial class FakePlayer
                 ctx.Roster.Save();
             }
             if (now < _growAfter) return;
-            _growAfter = now + TimeSpan.FromMinutes(40 + _random.Next(40));
-            await GrowGearAsync(set.Select(p => p.Grid).Distinct().ToList(), ct);
+            _growAfter = now + (party ? TimeSpan.FromSeconds(20) : TimeSpan.FromMinutes(40 + _random.Next(40)));
+            var grids = set.Select(p => p.Grid).Distinct().ToList();
+            // A real player's party member grows as far as its level allows now: strengthening and talents to their caps.
+            for (int round = 0; round < (party ? PartyGrowRounds : 1) && await GrowGearAsync(grids, party, ct); round++) { }
         }
         finally { if (!party) ctx.GearLane.Release(); }
     }
@@ -97,30 +100,32 @@ public sealed partial class FakePlayer
 
     /// <summary>
     /// One growth step: the least strengthened grid +<see cref="StrengthenSteps"/> (as far as the base level allows)
-    /// and the next <see cref="TalentsPerStep"/> talent levels, their materials granted in one !kit first.
+    /// and the next <see cref="TalentsPerStep"/> talent levels (more for a real player's party member), their materials
+    /// granted in one !kit first. False when there was nothing left to grow.
     /// </summary>
-    private async Task GrowGearAsync(IReadOnlyList<int> grids, CancellationToken ct)
+    private async Task<bool> GrowGearAsync(IReadOnlyList<int> grids, bool party, CancellationToken ct)
     {
         await OpenTalentsAsync(ct);
         var cost = new List<(int Item, long Count)>();
         int grid = grids.OrderBy(g => entry.Strength.GetValueOrDefault(g)).FirstOrDefault(), steps = 0;
-        for (int s = StrengthenSteps; s > 0 && grid > 0 && steps == 0; s--)
+        for (int s = party ? PartyStrengthenSteps : StrengthenSteps; s > 0 && grid > 0 && steps == 0; s--)
             if (ctx.Gear.StrengthenCost(grid, entry.Strength.GetValueOrDefault(grid), s, entry.Level) is { } more)
             { cost.AddRange(more); steps = s; }
         var talents = new List<TalentNode>();
         if (entry.TalentsOpen)
             foreach (var node in ctx.Gear.Talents(_job).Where(n => entry.Talents.GetValueOrDefault(n.Id) < n.MaxLevel && !_talentsClosed.Contains(n.Id)))
             {
-                if (talents.Count == TalentsPerStep) break;
+                if (talents.Count == (party ? PartyTalentsPerStep : TalentsPerStep)) break;
                 if (ctx.Gear.TalentCost(node, entry.Talents.GetValueOrDefault(node.Id) + 1, _job) is not { } price) continue;
                 cost.AddRange(price);
                 talents.Add(node);
             }
-        if (cost.Count == 0) return;
-        if (await KitAsync(cost.GroupBy(c => c.Item).Select(g => (g.Key, g.Sum(c => c.Count))), ct) == null) return;
+        if (cost.Count == 0) return false;
+        if (await KitAsync(cost.GroupBy(c => c.Item).Select(g => (g.Key, g.Sum(c => c.Count))), ct) == null) return false;
         if (steps > 0) await StrengthenAsync(grid, steps, ct);
         foreach (var node in talents) await RaiseTalentAsync(node, ct);
         ctx.Roster.Save();
+        return true;
     }
 
     private async Task StrengthenAsync(int grid, int steps, CancellationToken ct)

@@ -25,9 +25,11 @@ public sealed partial class FakePlayer
         {
             await GuildStepAsync(ct);
             await GrowAsync(ct);
+            await FixJobAsync(ct);
             await StatsStepAsync(ct);
             await ClassItemsStepAsync(ct);
             await GearStepAsync(ct);
+            await BoostStepAsync(ct);
             if (await PartyStepAsync(ct)) continue;
             if (await SiegeAsync(ct)) { await GoHomeAsync(ct); continue; }
             switch (persona)

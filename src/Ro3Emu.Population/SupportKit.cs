@@ -98,6 +98,13 @@ public sealed class SupportKit(GameData data)
             .OrderBy(r => chain.IndexOf(r.Job) is >= 0 and var tier ? tier : chain.Count).ThenByDescending(r => r.SkillId);
     }
 
+    /// <summary>An attack's strength at a level: its damage multiplier (SkillConfig._kDamageParam1[0], the ratio of the
+    /// attack the server applies, CombatService.Effects), 0 when it has none.</summary>
+    public long Power(int group, int level) => Row(group, level)?.DamageParam1 is [var multiplier, ..] ? multiplier : 0;
+
+    /// <summary>How far a skill reaches in metres (SkillConfig._iDistanceMax in cm), 0 when unknown.</summary>
+    public float Reach(long skillId) => SkillConfig.Get(data, skillId)?.DistanceMax is > 0 and var cm ? cm / 100f : 0;
+
     /// <summary>A class that fights with spells: most of its attack skills are magic (a Wizard has one physical Spell
     /// Smash among its spells). It never swings a normal attack.</summary>
     public static bool Casts(IReadOnlyCollection<AttackSkill> attacks) => attacks.Count(a => a.Magic) * 2 > attacks.Count;

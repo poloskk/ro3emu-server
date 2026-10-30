@@ -50,4 +50,17 @@ public sealed class StatBuildTests
         Assert.All(Enumerable.Range(0, 6), i => Assert.True(stats[i] >= earlier[i]));
         Assert.True(stats[3] > 1);
     }
+
+    /// <summary>A level-capped character's points (FakePlayer.Boost) go on the build: high main stats, not six at 99.</summary>
+    [ClientDataFact]
+    public void ALevelCappedBuildRaisesItsMainStatsNotAllSix()
+    {
+        var build = Build.Value;
+        int points = build.LevelPoints(1, 99);
+        Assert.True(points > 0);
+        var stats = build.Spend(Fresh, points, build.For(4400));
+        Assert.Equal(1, stats[0]); // still no STR
+        Assert.True(stats[3] >= 90, $"INT {stats[3]}");
+        Assert.InRange(Spent(Fresh, stats), points - 200, points);
+    }
 }

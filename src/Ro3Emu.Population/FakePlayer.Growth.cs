@@ -53,4 +53,23 @@ public sealed partial class FakePlayer
         entry.LastGrowthUtc = DateTime.UtcNow;
         ctx.Roster.Save();
     }
+
+    private bool _jobChecked;
+
+    /// <summary>
+    /// Once a session: a role GM !job sent into a job nobody can take (WorldPlan.TakeableSibling: no weapon fits it, the
+    /// job tree goes no further) moves to a sibling it can take. A background GM line (the realm's fake players, one
+    /// every few seconds), at once for a real player's party member.
+    /// </summary>
+    private async Task FixJobAsync(CancellationToken ct)
+    {
+        if (_jobChecked || entry.Level == 0 || !entry.Prepared) return;
+        _jobChecked = true;
+        if (ctx.Plan.TakeableSibling(_job, entry.Sex, entry.RoleId) is not { } job) return;
+        if (!await ctx.GmAsync(entry.Account, $"!job {job}", ct, background: !InParty)) { _jobChecked = false; return; }
+        PopulationContext.Log($"{entry.Name}: job {_job} cannot be taken; now job {job}");
+        _job = job;
+        entry.Gear = ""; // its new job's set
+        ctx.Roster.Save();
+    }
 }

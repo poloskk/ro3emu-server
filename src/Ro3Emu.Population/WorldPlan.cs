@@ -72,7 +72,7 @@ public sealed class WorldPlan(GameData data, WorldData world)
     /// </summary>
     public (long Job, int Base, int JobLevel)? NextJob(long job, int sex, Random random)
     {
-        var next = JobConfig.All(data).Where(j => j.ParentId == job && j.ParentId != 0 && (j.GenderLimit == 0 || j.GenderLimit == sex)).ToList();
+        var next = JobConfig.All(data).Where(j => j.ParentId == job && j.ParentId != 0 && Takeable(j, sex)).ToList();
         if (next.Count == 0) return null;
         var pick = next[random.Next(next.Count)];
         if (!data.Table("PublicParamConfig").TryGetValue("TransformJobLevelLimit", out var limits)
@@ -81,6 +81,22 @@ public sealed class WorldPlan(GameData data, WorldData world)
             if (GameData.Int(limit, "Rank") == pick.JobRank)
                 return (pick.Id, (int)GameData.Int(limit, "BaseLevelLimit"), (int)GameData.Int(limit, "JobLevelLimit"));
         return (pick.Id, 0, 0);
+    }
+
+    /// <summary>
+    /// A job a player can advance into: JobConfig _iNotTransformJob 1 (CharacterService refuses any other; the five rank-3
+    /// jobs with 2 are branches this client does not offer, and no ItemConfig weapon lists them in _kJobNeed) and the
+    /// role's sex.
+    /// </summary>
+    private static bool Takeable(JobConfig job, int sex) => job.NotTransformJob == 1 && (job.GenderLimit == 0 || job.GenderLimit == sex);
+
+    /// <summary>For a role in a job nobody can take (GM !job sent the fake players there before NextJob checked):
+    /// a sibling it can take, fixed per role; else null.</summary>
+    public long? TakeableSibling(long job, int sex, long seed)
+    {
+        if (JobConfig.Get(data, job) is not { } row || row.NotTransformJob != 2) return null;
+        var siblings = JobConfig.All(data).Where(j => j.ParentId == row.ParentId && j.Id != job && Takeable(j, sex)).OrderBy(j => j.Id).ToList();
+        return siblings.Count == 0 ? null : siblings[(int)(seed % siblings.Count)].Id;
     }
 
     /// <summary>The job's normal attack (JobConfig._kSkillNormalID, first entry).</summary>

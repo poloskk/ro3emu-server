@@ -43,6 +43,15 @@ public sealed class StatBuild(GameData data)
     /// <summary>Points to raise a stat to <paramref name="value"/> from the value below (BasePointConfig._iStatusPoint).</summary>
     public int Cost(int value) => (int)(BasePointConfig.Get(data, value)?.StatusPoint ?? 0);
 
+    /// <summary>The stat points a character earns from level <paramref name="from"/> to <paramref name="to"/>
+    /// (BaseLvConfig._iStatusPoint of each level gained, as CharacterService.TotalPoints counts them).</summary>
+    public int LevelPoints(int from, int to)
+    {
+        int points = 0;
+        for (int level = from + 1; level <= to; level++) points += (int)(BaseLvConfig.Get(data, level)?.StatusPoint ?? 0);
+        return points;
+    }
+
     /// <summary><paramref name="current"/> raised with <paramref name="points"/> after <paramref name="weights"/>; never lower.</summary>
     public int[] Spend(int[] current, int points, int[] weights)
     {

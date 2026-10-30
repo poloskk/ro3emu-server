@@ -85,7 +85,7 @@ public sealed partial class FakePlayer
 
     /// <summary>
     /// The job's skills, learned on first need: its class items' skills, its support skills, its own buffs, then its attack skills with the points
-    /// left. Each with its requirements at its cap, else at half, else at 1, as far as the job's skill points go (the
+    /// left, cast strongest first. Each with its requirements at its cap, else at half, else at 1, as far as the job's skill points go (the
     /// server refuses what they do not cover). Once per job.
     /// </summary>
     private async Task LearnSkillsAsync(CancellationToken ct)
@@ -109,7 +109,8 @@ public sealed partial class FakePlayer
         _supportJob = _job;
         _support = support;
         _buffs = buffs;
-        _attacks = attacks;
+        // The strongest first: when several are ready, the hardest hit goes out (the player's wish).
+        _attacks = [.. attacks.OrderByDescending(a => ctx.Support.Power(a.Group, a.Level))];
         var all = support.Select(k => $"{k.Group}:{k.Level}").Concat(buffs.Select(b => $"{b.Group}:{b.Level}"))
             .Concat(attacks.Select(k => $"{k.Group}:{k.Level}")).ToList();
         if (all.Count > 0) PopulationContext.Log($"{entry.Name}: skills {string.Join(", ", all)}");
