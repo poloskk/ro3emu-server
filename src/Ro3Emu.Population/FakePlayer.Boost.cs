@@ -82,7 +82,7 @@ public sealed partial class FakePlayer
             points += bonus;
         }
         var current = Enumerable.Range(1, 6).Select(i => plan.BaseProperty.GetValueOrDefault(i, 1)).ToArray();
-        var weights = ctx.Stats.For(_job);
+        var weights = Build.Weights;
         // Points spent on another build (an earlier one of its line) are reset (31501, free) and spent again on this one.
         var fresh = ctx.Stats.Spend([1, 1, 1, 1, 1, 1], plan.UsedAttrPoints + points, weights);
         if (current.Where((v, i) => v > fresh[i] + Rebuild).Any()
@@ -98,7 +98,7 @@ public sealed partial class FakePlayer
         var req = new AllocateAttrPointReq { PlanIndex = StatPlan };
         for (int i = 0; i < 6; i++) req.Points[i + 1] = wanted[i];
         int result = AllocateAttrPointRsp.Parser.ParseFrom(await RequestAsync(CharacterService.AllocateAttrPoints, req, ct)).Result;
-        if (result == 0) PopulationContext.Log($"{entry.Name}: stats {string.Join('/', wanted)}");
+        if (result == 0) PopulationContext.Log($"{entry.Name}: stats {string.Join('/', wanted)} ({Build.Name})");
         else PopulationContext.Log($"{entry.Name}: stats refused ({result})");
     }
 }

@@ -16,7 +16,7 @@ public sealed partial class FakePlayer
 {
     private const long MountType = 2; // CartRemouldTable _iType of the mount slot
     private readonly Dictionary<long, long> _leased = [];
-    private bool _rode;
+    private bool _rode, _dismounted;
     private DateTime _rideAfter;
 
     private async Task ClassItemsStepAsync(CancellationToken ct)
@@ -36,6 +36,15 @@ public sealed partial class FakePlayer
             _rode = false;
         }
         if (entry.Mount == 0 || _rode) return;
+        if (!Build.Rides)
+        {
+            // A build that fights on foot (a bow Ranger, its warg following): off the mount once a session, as the
+            // server keeps a rider from the last one.
+            if (_dismounted) return;
+            await RequestAsync(MountService.Ride, new PlayerRiderMountReq { Tp = eRiderType.OffBattle }, ct);
+            _dismounted = true;
+            return;
+        }
         var req = new PlayerRiderMountReq { Tp = eRiderType.OnBattle };
         _rode = PlayerRiderMountResp.Parser.ParseFrom(await RequestAsync(MountService.Ride, req, ct)).Result == 0;
         if (!_rode) _rideAfter = now + TimeSpan.FromSeconds(60 + _random.Next(60));

@@ -17,6 +17,27 @@ public sealed class StatBuildTests
     private int Spent(int[] from, int[] to) =>
         Enumerable.Range(0, 6).Sum(i => Enumerable.Range(from[i] + 1, to[i] - from[i]).Sum(Build.Value.Cost));
 
+    /// <summary>Every class line has two builds and bots split between them by role id; the third jobs' second ones are
+    /// Ro3Base's (a Warlock's INT 99 / DEX 80 / VIT 28), and the bow Ranger's fights on foot.</summary>
+    [ClientDataFact]
+    public void EachLineHasTwoBuildsThatBotsSplitBetween()
+    {
+        var build = Build.Value;
+        foreach (long job in new long[] { 1400, 1410, 2400, 2210, 3400, 3211, 4400, 4210, 5400, 5210, 6400 })
+        {
+            var plans = build.Plans(job);
+            Assert.Equal(2, plans.Count);
+            Assert.Equal(plans.Count, Enumerable.Range(100000, 40).Select(id => build.Pick(job, id).Name).Distinct().Count());
+        }
+        var warlock = build.Plans(2400)[1];
+        Assert.Equal("Tetra Cataclysm", warlock.Name);
+        var stats = build.Spend(Fresh, 600, warlock.Weights);
+        Assert.Equal(3, Array.IndexOf(stats, stats.Max())); // INT
+        Assert.True(stats[4] > stats[2] && stats[2] > 1 && stats[0] == 1, string.Join('/', stats)); // DEX over VIT, no STR
+        Assert.Contains(build.Plans(3400), p => !p.Rides);
+        Assert.Contains(build.Plans(3400), p => p.Rides);
+    }
+
     [ClientDataFact]
     public void AnArchbishopPutsItsPointsInIntelligenceAndStaysWithinThem()
     {

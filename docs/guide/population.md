@@ -137,10 +137,26 @@ a third, at most ten levels' worth per login.
 
 
 **Stat builds** (`StatBuild`, inferred population choice): a few minutes after logging in and after every level gained,
-a fake player spends its free stat points through the client's 31500 on its class line's classic build: Knight
-STR/AGI/VIT, Crusader VIT/STR, Wizard INT/DEX, Sage INT/DEX/AGI, Hunter DEX/AGI, Bard and Dancer DEX/AGI/INT, Priest
-INT/VIT/DEX, Monk STR/AGI, Assassin AGI/STR/LUK, Rogue STR/AGI/DEX, Blacksmith STR/DEX. Each point goes to the weighted
-stat furthest behind its share, at BasePointConfig's cost of each value; nothing spent before is taken back.
+a fake player spends its free stat points through the client's 31500 on one of its class line's two builds, kept by
+its role id (`StatBuild.Pick`), so half of a line plays each:
+
+| Line | Classic build | Second build |
+|---|---|---|
+| Knight, Rune Knight | Two-Handed STR (STR/AGI/VIT) | Dragon Breath (Ro3Base: VIT 99, INT 80, STR 28) |
+| Crusader, Royal Guard | Holy VIT (VIT/STR/INT) | Aegis Vanguard (Ro3Base: VIT 99, DEX 80, STR 28) |
+| Wizard, Warlock | INT/DEX | Tetra Cataclysm (Ro3Base: INT 99, DEX 80, VIT 28) |
+| Sage | Battle Sage (INT/DEX/AGI) | INT/VIT Sage |
+| Hunter, Ranger | Auto-Warg (AGI/LUK/DEX, rides its warg) | Apex Predator (Ro3Base: DEX 99, AGI 80, LUK 28; bow on foot, warg following) |
+| Bard, Dancer | DEX Performer | VIT Performer |
+| Priest, Arch Bishop | Healer (INT/VIT/DEX) | Sanctum (Ro3Base: INT 99, VIT 80, DEX 28) |
+| Monk | Combo (STR/AGI) | Asura (STR/INT) |
+| Assassin, Guillotine Cross | Critical (AGI/STR/LUK) | Shadow Venom (Ro3Base: AGI 99, STR 80, LUK 28) |
+| Rogue | STR Rogue | DEX Rogue |
+| Blacksmith, Mechanic | STR/DEX Smith (Madogear) | Iron Fortress (Ro3Base: STR 99, DEX 80, VIT 28; axes on foot) |
+
+The Ro3Base builds are the community's (ro3base.com/builds.html, read 2026-10-31). Each point goes to the weighted stat
+furthest behind its share, at BasePointConfig's cost of each value. On its own nothing spent is taken back; boosted for
+a party, a bot whose stats stand well off its build resets them (31501, free) and spends them again.
 
 **Class items** (`FakePlayer.Mount`, inferred population choice): a class with Special Class Items (CartRemouldTable,
 the Profession panel) carries them as a player does. It learns the item's `_kUnlockSkillID` (Peco Peco Riding, Falcon

@@ -119,7 +119,10 @@ public sealed partial class FakePlayer
         foreach (int group in ctx.Support.Buffs(_job))
             if (ctx.Support.Row(group, 1) is { } first && await LearnAsync(group, (int)first.MaxLevel, learned, ct) is var level and > 0)
                 buffs.Add((group, level));
-        foreach (var skill in ctx.Support.Attacks(_job))
+        // Those its build can cast first (on its mount or on foot, ClassBuild.Rides): of two exclusive branches it takes
+        // the one it fights with (a Mechanic in its Madogear, or with an axe on foot).
+        long ridden = Build.Rides ? entry.Mount : 0, held = ctx.Gear.HeldSubType(entry.Gear);
+        foreach (var skill in ctx.Support.Attacks(_job).OrderBy(a => ctx.Support.Row(a.Group, 1) is { } r && ctx.Support.Usable(r.Id, ridden, held) ? 0 : 1))
             if (await LearnAsync(skill.Group, skill.Level, learned, ct) is var level and > 0) attacks.Add(skill with { Level = level });
         _supportJob = _job;
         _support = support;
@@ -143,9 +146,9 @@ public sealed partial class FakePlayer
     /// </summary>
     private List<AttackSkill> Strongest(IEnumerable<AttackSkill> attacks)
     {
-        // Of those it can cast on its mount (it rides the one it leased, FakePlayer.Mount) with its weapon.
-        long held = ctx.Gear.HeldSubType(entry.Gear);
-        var ranked = attacks.Where(a => ctx.Support.Row(a.Group, a.Level) is { } row && ctx.Support.Usable(row.Id, entry.Mount, held))
+        // Of those it can cast on its mount (it rides the one it leased if its build does, FakePlayer.Mount) with its weapon.
+        long held = ctx.Gear.HeldSubType(entry.Gear), ridden = Build.Rides ? entry.Mount : 0;
+        var ranked = attacks.Where(a => ctx.Support.Row(a.Group, a.Level) is { } row && ctx.Support.Usable(row.Id, ridden, held))
             .Select(a => (Skill: a, Power: ctx.Support.Power(a.Group, a.Level))).OrderByDescending(a => a.Power).ToList();
         var often = ranked.Where(a => ctx.Support.Row(a.Skill.Group, a.Skill.Level) is { Cd: <= OftenCdMs }).ToList();
         long best = (often.Count > 0 ? often : ranked).Select(a => a.Power).DefaultIfEmpty(0).Max();

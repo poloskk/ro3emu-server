@@ -23,11 +23,14 @@ public sealed partial class FakePlayer
             new AllocateAttrPointReq { PlanIndex = StatPlan }, ct)).PlanBaseProperty;
         if (plan == null || plan.AttrPoints <= 0) return;
         var current = Enumerable.Range(1, 6).Select(i => plan.BaseProperty.GetValueOrDefault(i, 1)).ToArray();
-        var wanted = ctx.Stats.Spend(current, plan.AttrPoints, ctx.Stats.For(_job));
+        var wanted = ctx.Stats.Spend(current, plan.AttrPoints, Build.Weights);
         if (wanted.SequenceEqual(current)) return;
         var req = new AllocateAttrPointReq { PlanIndex = StatPlan };
         for (int i = 0; i < 6; i++) req.Points[i + 1] = wanted[i];
         int result = AllocateAttrPointRsp.Parser.ParseFrom(await RequestAsync(CharacterService.AllocateAttrPoints, req, ct)).Result;
-        if (result == 0) PopulationContext.Log($"{entry.Name}: stats {string.Join('/', wanted)}");
+        if (result == 0) PopulationContext.Log($"{entry.Name}: stats {string.Join('/', wanted)} ({Build.Name})");
     }
+
+    /// <summary>The build this bot follows in its job's line (StatBuild.Pick): its stats and whether it rides.</summary>
+    private ClassBuild Build => ctx.Stats.Pick(_job, entry.RoleId);
 }
