@@ -27,6 +27,10 @@ $Install = (Resolve-Path $Install).Path
 if (-not ($Version -match '^\d+\.\d+\.\d+$')) { throw "Version must be like 1.0.1" }
 $running = Get-Process ro3, Ro3Emu.Server, Ro3Emu.Population, RO3EmuPlay -ErrorAction SilentlyContinue
 if ($running) { throw "Stop RO3Emu first (running: $(($running | Select-Object -ExpandProperty ProcessName -Unique) -join ', '))." }
+# The fork carries the upstream's tags too (v1.0.x): gh would attach the release to that tag and its commit, not ours.
+if ($Publish -and (& git ls-remote --tags "https://github.com/$Repository.git" "refs/tags/v$Version")) {
+    throw "Tag v$Version already exists in $Repository; pick a version above its tags or move the tag first."
+}
 
 $work = Join-Path ([IO.Path]::GetTempPath()) ("ro3emu-offline-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
 $stage = Join-Path $work "RO3Emu-Offline\RO3Emu"
@@ -88,6 +92,6 @@ if ($Publish) {
     if (-not $gh) { $gh = "C:\Program Files\GitHub CLI\gh.exe" }
     $ghArgs = @("release", "create", "v$Version", $zipPath, "-R", $Repository, "--target", "feat/population", "--title", "RO3Emu Offline $Version")
     $ghArgs += if ($Notes) { @("--notes-file", $Notes) } else { @("--notes", "Download RO3Emu-Offline.zip, or press Update in RO3EmuPlay.") }
-    & $gh @args
+    & $gh @ghArgs
     if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
 }
