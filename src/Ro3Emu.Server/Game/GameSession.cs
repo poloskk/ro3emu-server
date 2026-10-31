@@ -143,6 +143,8 @@ public sealed class GameSession(PhonestChannel channel, TrafficLog traffic)
 
     /// <summary>Authoritative cast generation; delayed effects cannot outlive an interrupted/replaced cast.</summary>
     public ActiveSkillCast? SkillCast { get; set; }
+    /// <summary>A skill pressed near the end of <see cref="SkillCast"/>, cast when it ends (CombatService.HoldPreInput).</summary>
+    public Romsg.CastSkillReq? PreInput { get; set; }
     public SemaphoreSlim SkillCastGate { get; } = new(1, 1);
     public List<SkillObject> SkillObjects { get; } = new();
     public Dictionary<(int Group, int Mode), long> SkillModeCds { get; } = new();

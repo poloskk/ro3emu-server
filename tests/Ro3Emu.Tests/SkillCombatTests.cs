@@ -205,6 +205,26 @@ public sealed partial class SkillCombatTests : IAsyncLifetime
     }
 
     [ClientDataFact]
+    public async Task ASkillPressedAsTheLastOneEndsIsHeldThenCast()
+    {
+        await using var alice = await InWorld("Alice");
+        await Gm("alice", "!job 1100");
+        await Teach("alice", 11001);
+        await Teach("alice", 11002);
+        var target = await Target("alice");
+        await alice.SendGameAsync(CombatService.UseSkill, new CastSkillReq { SkillId = 1100101, TargetId = target.Uid });
+        var bash = await Next(alice, CombatService.UseSkill, CastSkillRsp.Parser);
+        Assert.Equal(0, bash.Result);
+        var acting = await Next(alice, CombatService.UseInSkill, UseInSkillInfo.Parser, p => p.SessionId == bash.SessionId);
+        Assert.True(acting.ChantMs + acting.SkillMs > 0, "Bash acts a while");
+        // Magnum Break pressed during Bash's action: held for its end (CombatService.HoldPreInput), not refused as busy.
+        await alice.SendGameAsync(CombatService.UseSkill, new CastSkillReq { SkillId = 1100201, TargetId = target.Uid });
+        var magnum = await Next(alice, CombatService.UseSkill, CastSkillRsp.Parser);
+        Assert.Equal(0, magnum.Result);
+        Assert.NotEqual(bash.SessionId, magnum.SessionId);
+    }
+
+    [ClientDataFact]
     public async Task AcceptedCastHitsAndPassiveUnownedAndWrongActorAreRefused()
     {
         await using var alice = await InWorld("Alice");

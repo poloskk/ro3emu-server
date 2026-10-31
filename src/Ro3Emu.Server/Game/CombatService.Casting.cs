@@ -106,6 +106,7 @@ public sealed partial class CombatService
         long errorParam = 0;
         if (error == 0) (error, errorParam) = ValidateCosts(s, costs);
         if (error == 0 && !_buffs.CanSpendEnergy(s, row!.Value)) error = ErrorCodes.SkillEnergyShort;
+        if (error == ErrorCodes.SkillBusy && owned == null && HoldPreInput(s, request)) return;
         if (error != 0)
         {
             await RefuseCastAsync(s, req, error, errorParam);
@@ -160,6 +161,33 @@ public sealed partial class CombatService
                 s.Position.X, s.Position.Z);
         await StartCooldownAsync(s, row.Value, SkillConfig.Get(_data, request.SkillId) is { } asked ? (int)asked.Mode : null);
         await StartCastAsync(s, row.Value, req, id, owned);
+    }
+
+    /// <summary>How long before the running cast's end a skill pressed is held for it rather than refused.</summary>
+    private const int PreInputMs = 1500;
+
+    /// <summary>
+    /// (inferred) A skill pressed while the last one still acts, within <see cref="PreInputMs"/> of its end, is held and
+    /// cast as that action ends (the client's pre-input, SkillConfig _iPreInputSkill / LC_SkillInputCache), not
+    /// refused as busy: a Warlock's auto battle sent its next spell a median 0.44 s (up to 1.5 s) before the server's
+    /// action ended, and 3 in 4 of one spell were refused (2026-10-31 traffic), each a lost turn. One is held at a
+    /// time, the latest press; the one it replaces is refused. The held cast is checked again when it runs.
+    /// </summary>
+    private bool HoldPreInput(GameSession s, CastSkillReq request)
+    {
+        if (s.SkillCast is not { Cancelled: false } active) return false;
+        long left = active.StartMs + active.ChantMs + active.ActionMs - Now;
+        if (left <= 0 || left > PreInputMs) return false;
+        if (s.PreInput is { } replaced) _loop.TrackRuntimeDetached("pre-input replaced", () => RefuseCastAsync(s, replaced, ErrorCodes.SkillBusy, 0));
+        var held = request.Clone();
+        s.PreInput = held;
+        _loop.ScheduleRuntime(TimeSpan.FromMilliseconds(left + 20), async () =>
+        {
+            if (!ReferenceEquals(s.PreInput, held)) return;
+            s.PreInput = null;
+            await CastAsync(s, held);
+        });
+        return true;
     }
 
     /// <summary>
