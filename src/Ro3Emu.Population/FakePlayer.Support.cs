@@ -61,7 +61,9 @@ public sealed partial class FakePlayer
             var req = new CastSkillReq { SkillId = (int)row.Id, TargetId = id };
             if (ground is { } g) req.TargetPos = new Vec3 { X = g.X, Y = g.Y, Z = g.Z };
             int result = CastSkillRsp.Parser.ParseFrom(await RequestAsync(CombatService.UseSkill, req, ct)).Result;
-            _nextCast[skill.Group] = now + (result == 0 ? Recast(skill.Use) : TimeSpan.FromSeconds(result == ErrorCodes.SkillCooldown ? 1 : 20));
+            // On cooldown it waits a few seconds (a Resurrection was asked 52 times in 4 min), busy a second.
+            _nextCast[skill.Group] = now + (result == 0 ? Recast(skill.Use)
+                : TimeSpan.FromSeconds(result == ErrorCodes.SkillBusy ? 1 : result == ErrorCodes.SkillCooldown ? 5 : 20));
             if (result != 0) continue;
             await Task.Delay(CastPause, ct);
             return true;
@@ -110,6 +112,10 @@ public sealed partial class FakePlayer
                 await LearnAsync(group, level, learned, ct);
         foreach (var skill in ctx.Support.For(_job))
             if (await LearnAsync(skill.Group, skill.Level, learned, ct) is var level and > 0) support.Add(skill with { Level = level });
+        // A tank's taunts (Provoke) before its buffs and attacks.
+        var taunts = new List<AttackSkill>();
+        foreach (var skill in Tank ? ctx.Support.Taunts(_job) : [])
+            if (await LearnAsync(skill.Group, skill.Level, learned, ct) is var level and > 0) taunts.Add(skill with { Level = level });
         foreach (int group in ctx.Support.Buffs(_job))
             if (ctx.Support.Row(group, 1) is { } first && await LearnAsync(group, (int)first.MaxLevel, learned, ct) is var level and > 0)
                 buffs.Add((group, level));
@@ -118,8 +124,9 @@ public sealed partial class FakePlayer
         _supportJob = _job;
         _support = support;
         _buffs = buffs;
+        _taunts = taunts;
         _attacks = Strongest(attacks);
-        var all = support.Select(k => $"{k.Group}:{k.Level}").Concat(buffs.Select(b => $"{b.Group}:{b.Level}"))
+        var all = support.Select(k => $"{k.Group}:{k.Level}").Concat(taunts.Select(t => $"{t.Group}:{t.Level}")).Concat(buffs.Select(b => $"{b.Group}:{b.Level}"))
             .Concat(attacks.Select(k => $"{k.Group}:{k.Level}")).ToList();
         if (all.Count > 0) PopulationContext.Log($"{entry.Name}: skills {string.Join(", ", all)}");
     }
@@ -129,15 +136,24 @@ public sealed partial class FakePlayer
 
     /// <summary>
     /// The attacks a bot uses, strongest first (when several are ready, the hardest hit goes out), without the weak
-    /// fillers an earlier job taught (the player's wish: below <see cref="StrongShare"/> of the strongest one's
-    /// multiplier, SupportKit.Power), keeping at least the two strongest. Between them it swings, or a caster waits.
+    /// fillers an earlier job taught (the player's wish: below <see cref="StrongShare"/> of the strongest multiplier,
+    /// SupportKit.Power, of those it can cast often), keeping at least the two strongest. An ultimate on a long cooldown
+    /// (a Mechanic's 180 s one) sets no bar, or it would leave the bot nothing between its casts. Between them it swings,
+    /// or a caster waits.
     /// </summary>
     private List<AttackSkill> Strongest(IEnumerable<AttackSkill> attacks)
     {
-        var ranked = attacks.Select(a => (Skill: a, Power: ctx.Support.Power(a.Group, a.Level))).OrderByDescending(a => a.Power).ToList();
-        long best = ranked.Count > 0 ? ranked[0].Power : 0;
+        // Of those it can cast on its mount (it rides the one it leased, FakePlayer.Mount) with its weapon.
+        long held = ctx.Gear.HeldSubType(entry.Gear);
+        var ranked = attacks.Where(a => ctx.Support.Row(a.Group, a.Level) is { } row && ctx.Support.Usable(row.Id, entry.Mount, held))
+            .Select(a => (Skill: a, Power: ctx.Support.Power(a.Group, a.Level))).OrderByDescending(a => a.Power).ToList();
+        var often = ranked.Where(a => ctx.Support.Row(a.Skill.Group, a.Skill.Level) is { Cd: <= OftenCdMs }).ToList();
+        long best = (often.Count > 0 ? often : ranked).Select(a => a.Power).DefaultIfEmpty(0).Max();
         return [.. ranked.Where((a, i) => i < 2 || a.Power >= best * StrongShare).Select(a => a.Skill)];
     }
+
+    /// <summary>The longest cooldown of an attack a bot casts in its rotation, not as an ultimate.</summary>
+    private const long OftenCdMs = 15_000;
 
     /// <summary>One skill (with its requirements) learned on top of <paramref name="learned"/>: the level reached, or 0.</summary>
     private async Task<int> LearnAsync(int group, int maxLevel, Dictionary<int, int> learned, CancellationToken ct)
@@ -155,8 +171,21 @@ public sealed partial class FakePlayer
     }
 
     private IReadOnlyList<(int Group, int Level)> _buffs = [];
-    private IReadOnlyList<AttackSkill> _attacks = [];
+    private IReadOnlyList<AttackSkill> _attacks = [], _taunts = [];
     private DateTime _attacksPausedUntil, _spRefilled;
+
+    /// <summary>A frontline class (SupportKit.IsTank): in a party it holds a boss with its taunts and stands in its area
+    /// skills (FakePlayer.Dodge, FakePlayer.Evade), drinking instead (the player's wish).</summary>
+    private bool Tank => ctx.Support.IsTank(_job);
+
+    /// <summary>Whether the client would offer the skill now (SupportKit.Usable): the mount this bot rides, its weapon.</summary>
+    private bool Usable(long skillId) => ctx.Support.Usable(skillId, _rode ? entry.Mount : 0, ctx.Gear.HeldSubType(entry.Gear));
+
+    /// <summary>Whether an attack reaches a target <paramref name="distance"/> away: around the caster its area's radius,
+    /// else its _iDistanceMax (half a metre spare: the server measures from the centres too).</summary>
+    private bool Reaches(AttackSkill skill, long skillId, float distance) =>
+        (skill.Aim == AttackAim.Self ? ctx.Support.AreaRadius(skillId) : ctx.Support.Reach(skillId)) is var reach
+        && (reach <= 0 || distance <= reach + 0.5f);
 
     /// <summary>A class that fights with spells (SupportKit.Casts) never swings.</summary>
     private bool Caster => SupportKit.Casts(_attacks);
@@ -179,13 +208,19 @@ public sealed partial class FakePlayer
         var now = DateTime.UtcNow;
         if (now >= _attacksPausedUntil)
         {
+            // A tank in a party draws a boss to itself first, whenever its taunt is ready (MonsterService.Provoke).
+            if (InParty && Tank && ctx.Support.IsBoss((long)target.EntityTemplateID))
+                foreach (var taunt in _taunts)
+                    if (Ready(taunt, target) && await CastAsync(taunt.Group, taunt.Level, target, taunt.Aim, rest: null, ct) is { } cast)
+                        return cast;
             foreach (var (group, level) in _buffs)
                 if (await CastAsync(group, level, null, AttackAim.Self, rest: TimeSpan.FromSeconds(45 + _random.Next(30)), ct) is { } cast)
                     return cast;
             foreach (var skill in _attacks)
-                if (await CastAsync(skill.Group, skill.Level, target, skill.Aim, rest: null, ct) is { } cast)
+                if (Ready(skill, target) && await CastAsync(skill.Group, skill.Level, target, skill.Aim, rest: null, ct) is { } cast)
                     return cast;
         }
+        Trace("attack", () => $"none ready of {_attacks.Count} (riding {(_rode ? entry.Mount : 0)}); {(Caster || skillsOnly ? "waits" : $"swings {normal}")} at {Distance(target.MovementInfo.Pos):F1} m");
         if (Caster || skillsOnly) // skills only: a boss is fought from afar (FakePlayer.Evade)
         {
             // Not a swing: the next spell that comes off cooldown, a moment from now.
@@ -199,6 +234,11 @@ public sealed partial class FakePlayer
         await Task.Delay(InParty ? TimeSpan.FromMilliseconds(600 + _random.Next(200)) : TimeSpan.FromSeconds(1.2 + _random.NextDouble() * 0.6), ct);
         return true;
     }
+
+    /// <summary>An attack the client would offer now (its weapon, its mount) that reaches the target from where the bot
+    /// stands: the rest wait, so a ranged bot keeps its distance and casts what reaches.</summary>
+    private bool Ready(AttackSkill skill, EntityBase target) => ctx.Support.Row(skill.Group, skill.Level) is { } row
+        && Usable(row.Id) && Reaches(skill, row.Id, Distance(target.MovementInfo.Pos));
 
     /// <summary>
     /// A skill cast if it is due: true when cast, false when the server says the bot is dead, null when it was not cast
@@ -216,6 +256,7 @@ public sealed partial class FakePlayer
             TargetPos = aim == AttackAim.Ground && at != null ? new Vec3 { X = at.X, Y = at.Y, Z = at.Z } : null,
         };
         int result = CastSkillRsp.Parser.ParseFrom(await RequestAsync(CombatService.UseSkill, req, ct)).Result;
+        Trace($"cast {group}", () => $"skill {row.Id} at {(target == null ? 0 : Distance(target.MovementInfo.Pos)):F1} m: {result}");
         if (result == ErrorCodes.SkillBadState) return false;
         if (result == ErrorCodes.SkillCostShort)
         {
@@ -227,8 +268,9 @@ public sealed partial class FakePlayer
             return null;
         }
         var cooldown = TimeSpan.FromMilliseconds(Math.Max(row.Cd, 1500));
+        // Busy (the last skill's action still runs) or on cooldown: soon again; anything else rests half a minute.
         _nextCast[group] = now + (result == 0 ? (rest is { } r && r > cooldown ? r : cooldown)
-            : TimeSpan.FromSeconds(result == ErrorCodes.SkillCooldown ? 2 : 30));
+            : TimeSpan.FromSeconds(result == ErrorCodes.SkillBusy ? 1 : result == ErrorCodes.SkillCooldown ? 2 : 30));
         if (result != 0) return null;
         await Task.Delay(TimeSpan.FromMilliseconds(Math.Clamp(row.ActionTime, 800, 2500)), ct);
         return true;

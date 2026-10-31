@@ -22,7 +22,8 @@ public sealed partial class FakePlayer
     /// <summary>Runs from a boss that is too close: true when it ran.</summary>
     private async Task<bool> EvadeAsync(CancellationToken ct)
     {
-        if (InParty && OwnLife() >= PartyEvadeLife) return false;
+        // In a party a tank never runs: it holds the boss and drinks (FakePlayer.Support.Tank).
+        if (InParty && (Tank || OwnLife() >= PartyEvadeLife)) return false;
         SyncPosition();
         if (Threat() is not { } boss) return false;
         var at = boss.MovementInfo.Pos;
@@ -32,7 +33,6 @@ public sealed partial class FakePlayer
         if ((Near(away, 0, 3) ?? Near(new MapPoint(_pos.X, _pos.Y, _pos.Z, 0), FleeDistance - 2, FleeDistance + 2)) is not { } to)
             return false;
         if (InParty) PopulationContext.Log($"{entry.Name}: runs from boss {boss.EntityTemplateID} at {OwnLife():P0} life");
-        await GoAsync(to, ct);
-        return true;
+        return await GoAsync(to, ct); // no way away: it fights on rather than trying again at once
     }
 }

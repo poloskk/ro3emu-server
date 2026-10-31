@@ -213,7 +213,7 @@ public sealed partial class CombatService
                             && RollHostileBuff(tuple, s, null, null, target, out int id, out int duration))
                             await _buffs.AddSupportAsync(target, id, duration, castingRole.Id,
                                 attributeMultiplier: GuardianPetRules.BuffMultiplier(row), guardianOwned: IsGuardianEffect(row));
-                if (CanApplyMoreEffects() && script is ("Provoke" or "Taunt")) _monsters.Engage(target, s);
+                if (CanApplyMoreEffects() && script is ("Provoke" or "Taunt")) _monsters.Provoke(target, s, new SkillConfig(row).Cd);
                 if (CanApplyMoreEffects() && !target.Dead && target.Hp > 0) await DisplaceTargetAsync(s, action, target);
             }
             // Buff1 is self for hostile selectors, but actual friend recipients for ally selectors (Detoxify, Blessing).
@@ -270,7 +270,7 @@ public sealed partial class CombatService
                 if (target.Hp == 0 && !target.DeathDurable) continue; // another cast is still committing that death
                 await _world.ToUnitViewersAsync(target, AoiAttrChange, MonsterService.Hp(target));
                 await FightingAsync(target);
-                if (target.Hp > 0 && CurrentCaster()) _monsters.Engage(target, s);
+                if (target.Hp > 0 && CurrentCaster()) _monsters.EngageByHit(target, s);
             }
             if (processed.Count > 0 && CurrentCaster()) await FightingAsync(s);
             foreach (var target in killed.Where(target => target.Hp == 0 && target.DeathDurable))

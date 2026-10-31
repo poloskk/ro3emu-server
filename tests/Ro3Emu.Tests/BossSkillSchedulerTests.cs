@@ -226,6 +226,23 @@ public sealed class BossSkillSchedulerTests : IAsyncLifetime
         Assert.Null(kraken.BossSkills);
     }
 
+    /// <summary>MonsterService.Provoke: a Provoke holds the boss on its caster for the hold (the skill's _iCD) against the
+    /// other players' hits, which turn it to them again once the hold is over.</summary>
+    [ClientDataFact]
+    public async Task AProvokeHoldsTheBossAgainstOtherHits()
+    {
+        await using var alice = await InWorld("Alice");
+        await using var bob = await InWorld("Bob");
+        var kraken = await Boss("alice", 5020018, engage: false);
+        GameSession? Hit(Action<MonsterUnit> act) => Loop.InvokeAsync(() => { act(kraken); return Task.FromResult(kraken.Target); })
+            .GetAwaiter().GetResult();
+        Assert.Same(Session("bob"), Hit(m => Monsters.EngageByHit(m, Session("bob"))));
+        Assert.Same(Session("alice"), Hit(m => Monsters.Provoke(m, Session("alice"), 10_000)));
+        Assert.Same(Session("alice"), Hit(m => Monsters.EngageByHit(m, Session("bob")))); // held
+        Assert.Same(Session("alice"), Hit(m => { m.ProvokedUntilMs = 0; Monsters.EngageByHit(m, Session("alice")); }));
+        Assert.Same(Session("bob"), Hit(m => Monsters.EngageByHit(m, Session("bob")))); // the hold is over
+    }
+
     [ClientDataFact]
     public async Task DeathInterruptsTheCastAndRemovesTheSummons()
     {

@@ -36,6 +36,8 @@ public sealed class PopulationOptions
     /// <summary>Rival raids hunting the field MVPs at once (MvpRaidCoordinator; 0: none), and players in each.</summary>
     public int MvpRaids { get; set; } = 3;
     public int MvpRaidSize { get; set; } = 8;
+    /// <summary>Fake players by name whose party and fight decisions are logged (FakePlayer.Trace; a diagnostic).</summary>
+    public HashSet<string> Trace { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public string Roster => RosterPath ?? Path.Combine(GameDataDir, "population", "roster.json");
 
@@ -66,6 +68,7 @@ public sealed class PopulationOptions
                 case "--guild-every": o.GuildEverySeconds = int.Parse(value, CultureInfo.InvariantCulture); i++; break;
                 case "--mvp-raids": o.MvpRaids = int.Parse(value, CultureInfo.InvariantCulture); i++; break;
                 case "--mvp-raid-size": o.MvpRaidSize = int.Parse(value, CultureInfo.InvariantCulture); i++; break;
+                case "--trace": o.Trace.UnionWith(value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)); i++; break;
                 default: throw new ArgumentException($"unknown option {args[i]}");
             }
         }

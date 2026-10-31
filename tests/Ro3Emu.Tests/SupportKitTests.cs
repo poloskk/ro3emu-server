@@ -87,6 +87,51 @@ public sealed class SupportKitTests
         Assert.Empty(kit.ClassItems(2100));
     }
 
+    /// <summary>A level -1 requirement is a branch the skill excludes, not a skill nobody learns: a Mechanic learns its
+    /// Madogear line (License 16309, Knuckle Boost 16313 to Arm Cannon's 16315), and then not the Axe line (16351) that
+    /// excludes it, nor its skills (Axe Tornado 16308).</summary>
+    [ClientDataFact]
+    public void AMechanicLearnsOneOfItsTwoExclusiveLines()
+    {
+        var kit = Kit.Value;
+        var mado = kit.Ask(6400, 16315, 5, new Dictionary<int, int>());
+        Assert.NotNull(mado);
+        Assert.True(mado!.ContainsKey(16313) && mado.ContainsKey(16309), string.Join(',', mado.Keys));
+        Assert.DoesNotContain(16351, mado.Keys);
+        Assert.Null(kit.Ask(6400, 16308, 5, mado)); // the Axe line, after the Madogear one
+        Assert.Null(kit.Ask(6400, 16315, 5, kit.Ask(6400, 16308, 5, new Dictionary<int, int>())!)); // and the other way round
+        Assert.Contains(kit.Attacks(6400), a => a.Group == 16315);
+    }
+
+    /// <summary>The frontline classes (JobConfig _iDungeonJobPositionID 101 "DMG Taken") hold a boss with Provoke.</summary>
+    [ClientDataFact]
+    public void TanksAreTheFrontlineClassesAndProvoke()
+    {
+        var kit = Kit.Value;
+        Assert.All(new long[] { 1100, 1210, 1310, 1410 }, job => Assert.True(kit.IsTank(job), $"job {job}"));
+        Assert.All(new long[] { 1400, 2400, 3400, 4400, 5400, 6400 }, job => Assert.False(kit.IsTank(job), $"job {job}"));
+        Assert.Contains(kit.Taunts(1410), t => t.Group == 11004 && t.Aim == AttackAim.Self); // Provoke, round the Royal Guard
+        Assert.DoesNotContain(kit.Attacks(1410), a => a.Group == 11004);
+    }
+
+    /// <summary>LC_ConditionList as the client checks a skill: a riding Ranger has Warg Hunt and not Arrow Storm (a bow
+    /// and no wolf ridden), a Mechanic its Madogear attack only in its Madogear.</summary>
+    [ClientDataFact]
+    public void SkillsNeedTheirMountAndWeapon()
+    {
+        var kit = Kit.Value;
+        const long Wolf = 1500400, Madogear = 1500300, Bow = 11;
+        long arrowStorm = kit.Row(13302, 1)!.Value.Id, wargHunt = kit.Row(13323, 1)!.Value.Id, madoAttack = kit.Row(16310, 1)!.Value.Id;
+        Assert.True(kit.Usable(arrowStorm, 0, Bow));
+        Assert.False(kit.Usable(arrowStorm, Wolf, Bow));
+        Assert.False(kit.Usable(arrowStorm, 0, 0)); // no bow
+        Assert.True(kit.Usable(wargHunt, Wolf, Bow));
+        Assert.False(kit.Usable(wargHunt, 0, Bow));
+        Assert.True(kit.Usable(madoAttack, Madogear, 7));
+        Assert.False(kit.Usable(madoAttack, 0, 7));
+        Assert.True(kit.Usable(kit.Row(11004, 1)!.Value.Id, 0, 0)); // Provoke has no condition
+    }
+
     /// <summary>A boss's area casts are dodged, not its swings (FakePlayer.Dodge): the 30.10 field MVP fight's casts.</summary>
     [ClientDataFact]
     public void ABossesAreaSkillsAreToldFromItsSwings()

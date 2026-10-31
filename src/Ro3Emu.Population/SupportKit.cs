@@ -96,7 +96,7 @@ public sealed class SupportKit(GameData data)
         var chain = new List<long>();
         for (long c = job; c > 0 && JobConfig.Get(data, c) is { } row; c = row.ParentId) chain.Add(c);
         return Tree(job).Select(g => Row(g, 1)).OfType<SkillConfig>()
-            .Where(r => r is { BasicType: 1, SystemType: 1, IsNormalAtk: 0, MaxLevel: > 0 } && kind(r)
+            .Where(r => r is { BasicType: 1, SystemType: 1, IsNormalAtk: 0, MaxLevel: > 0 } && kind(r) && !IsTaunt(r)
                 && Skills.All(s => s.Group != r.SkillId)) // Heal is magic too, but for the host
             .OrderBy(r => chain.IndexOf(r.Job) is >= 0 and var tier ? tier : chain.Count).ThenByDescending(r => r.SkillId);
     }
@@ -146,11 +146,14 @@ public sealed class SupportKit(GameData data)
     /// <summary>
     /// The levels to ask for so that <paramref name="skill"/> at <paramref name="level"/> may be learned: it and every
     /// _kPreSkillRequired of each level up to it, recursively, at the highest level asked; null when a requirement is
-    /// outside the job's tree or forbids a learned skill (level -1).
+    /// outside the job's tree, or the skill is barred by one <paramref name="learned"/> (or asked with it): a level -1
+    /// requirement is a branch the skill excludes (a Mechanic's Madogear License 16309 line, Arm Cannon 16311 and
+    /// Knuckle Boost 16313, against its Axe line 16351).
     /// </summary>
-    public Dictionary<int, int>? Requirements(long job, int skill, int level)
+    public Dictionary<int, int>? Requirements(long job, int skill, int level, IReadOnlyDictionary<int, int>? learned = null)
     {
         var wanted = new Dictionary<int, int>();
+        var barred = new HashSet<int>();
         var tree = Tree(job);
         bool Add(int group, int at)
         {
@@ -159,11 +162,69 @@ public sealed class SupportKit(GameData data)
             wanted[group] = at;
             for (int l = 1; l <= at; l++)
                 foreach (var pair in Row(group, l)?.PreSkillRequired ?? [])
-                    if (pair is [var g, var need] && (need == -1 || need > 0 && !Add((int)g, (int)need))) return false;
+                {
+                    if (pair is not [var g, var need]) continue;
+                    if (need == -1) barred.Add((int)g);
+                    else if (need > 0 && !Add((int)g, (int)need)) return false;
+                }
             return true;
         }
-        return Add(skill, level) ? wanted : null;
+        if (!Add(skill, level)) return null;
+        // An excluded branch neither learned already nor asked with it; nor a learned skill that excludes one asked.
+        bool Has(int group) => wanted.ContainsKey(group) || learned?.GetValueOrDefault(group) > 0;
+        if (barred.Any(Has)) return null;
+        foreach (var (group, at) in learned ?? new Dictionary<int, int>())
+            for (int l = 1; l <= at; l++)
+                if ((Row(group, l)?.PreSkillRequired ?? []).Any(p => p is [var g, -1] && wanted.ContainsKey((int)g))) return null;
+        return wanted;
     }
+
+    /// <summary>A frontline class: JobConfig _iDungeonJobPositionID holds 101, DungeonJobPositionConfig's "DMG Taken" role
+    /// (Swordman, Crusader, Paladin, Royal Guard).</summary>
+    public bool IsTank(long job) => JobConfig.Get(data, job)?.DungeonJobPositionId.Contains(TankPosition) == true;
+    private const long TankPosition = 101;
+
+    /// <summary>The job's skills that draw a monster's attacks (SkillConfig _kScriptLogic Provoke or Taunt, CombatService's
+    /// MonsterService.Provoke), at their learnable cap.</summary>
+    public IReadOnlyList<AttackSkill> Taunts(long job) =>
+        [.. Tree(job).Select(g => Row(g, 1)).OfType<SkillConfig>()
+            .Where(r => r is { BasicType: 1, MaxLevel: > 0 } && IsTaunt(r))
+            .Select(r => new AttackSkill((int)r.SkillId, (int)r.MaxLevel, r.Release == 1 ? AttackAim.Target : AttackAim.Self))];
+
+    private static bool IsTaunt(SkillConfig r) => r.ScriptLogic is "Provoke" or "Taunt";
+
+    /// <summary>
+    /// Whether a skill may be cast as the client allows it (SkillConfig _iSkillCondition, LC_ConditionList; the server
+    /// does not check): its weapon (2001 CheckEquipType01, the held weapon's ItemConfig _iSubType), riding a mount (2003
+    /// CheckMountType01) or not riding it (2004 CheckMountType02). A node's same-type conditions are any of them
+    /// (LC_ConditionManager._mergeOrConditionSameType), the types all of them (enum_NodeType AND); other types pass.
+    /// A riding Ranger's normal attack is Warg Strike and its bow skills wait, a Mechanic fights with Madogear skills only
+    /// in its Madogear.
+    /// </summary>
+    public bool Usable(long skillId, long ridden, long weaponSubType)
+    {
+        if (SkillConfig.Get(data, skillId) is not { SkillCondition: > 0 } row || LCConditionList.Get(data, row.SkillCondition) is not { } node
+            || node.SubConditionList is not { ValueKind: System.Text.Json.JsonValueKind.Array } subs) return true;
+        var byType = new Dictionary<long, bool>();
+        foreach (var sub in subs.EnumerateArray())
+        {
+            if (!sub.TryGetProperty("m_kData", out var d) || d.ValueKind != System.Text.Json.JsonValueKind.Array || d.GetArrayLength() < 2) continue;
+            long type = d[0].GetInt64(), value = d[1].GetInt64();
+            bool? holds = type switch
+            {
+                EquipType => weaponSubType == value,
+                Riding => ridden == value,
+                NotRiding => ridden != value,
+                _ => null,
+            };
+            if (holds is not { } ok) continue;
+            if (sub.TryGetProperty("m_bInverse", out var inverse) && inverse.ValueKind == System.Text.Json.JsonValueKind.True) ok = !ok;
+            byType[type] = byType.GetValueOrDefault(type) || ok;
+        }
+        return byType.Values.All(v => v);
+    }
+
+    private const long EquipType = 2001, Riding = 2003, NotRiding = 2004;
 
     /// <summary>
     /// The levels of a 31151 request that learns <paramref name="skill"/> at <paramref name="level"/> on top of what is
@@ -171,7 +232,7 @@ public sealed class SupportKit(GameData data)
     /// </summary>
     public Dictionary<int, int>? Ask(long job, int skill, int level, IReadOnlyDictionary<int, int> learned)
     {
-        if (Requirements(job, skill, level) is not { } needed) return null;
+        if (Requirements(job, skill, level, learned) is not { } needed) return null;
         var ask = new Dictionary<int, int>(learned);
         foreach (var (group, at) in needed)
             ask[group] = Math.Max(ask.GetValueOrDefault(group), Math.Max(at, (int)(Row(group, 1)?.InitialLevel ?? 0)));

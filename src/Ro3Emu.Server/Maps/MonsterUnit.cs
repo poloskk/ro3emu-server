@@ -60,6 +60,9 @@ public sealed class MonsterUnit : WorldUnit
     /// <summary>Tower pet currently drawing this monster's attacks; owner remains the fallback target (inferred).</summary>
     public TowerPetUnit? PetTarget { get; set; }
     public long NextSwingMs { get; set; }
+    /// <summary>A Provoke or Taunt holds it on its <see cref="Target"/> until then: other hits do not take it away
+    /// (MonsterService.Provoke).</summary>
+    public long ProvokedUntilMs { get; set; }
     public long NextChaseMs { get; set; }
     public bool Returning { get; set; }
     public long LastCombatMs { get; set; }

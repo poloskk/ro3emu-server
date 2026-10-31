@@ -36,7 +36,8 @@ public sealed class StatBuildTests
         Assert.Equal(0, Main(1300)); // Lord Knight: STR
         Assert.Equal(2, Main(1310)); // Paladin: VIT
         Assert.Equal(3, Main(2300)); // High Wizard: INT
-        Assert.Equal(4, Main(3300)); // Sniper: DEX
+        Assert.Equal(1, Main(3300)); // Sniper: AGI (and LUK), the auto-warg build
+        Assert.Equal(build.For(3400)[1], build.For(3400)[5]);
         Assert.Equal(1, Main(5300)); // Assassin Cross: AGI
         Assert.Equal(0, Main(4210)); // Monk: STR
     }

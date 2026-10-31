@@ -20,7 +20,7 @@ public sealed class StatBuild(GameData data)
         (1, true) => [4, 0, 5, 2, 2, 0],  // Crusader: VIT first, a little INT for Heal
         (2, false) => [0, 0, 1, 6, 4, 0], // Wizard: INT, DEX for cast time
         (2, true) => [0, 2, 1, 5, 3, 0],  // Sage
-        (3, false) => [0, 4, 1, 0, 6, 1], // Hunter: DEX, AGI
+        (3, false) => [0, 5, 1, 0, 3, 5], // Hunter: AGI and LUK, an auto-warg Ranger's (the player's wish), DEX
         (3, true) => [0, 3, 1, 2, 5, 0],  // Bard and Dancer
         (4, false) => [0, 0, 3, 6, 3, 0], // Priest: INT for Heal, VIT, DEX
         (4, true) => [5, 3, 2, 0, 2, 0],  // Monk

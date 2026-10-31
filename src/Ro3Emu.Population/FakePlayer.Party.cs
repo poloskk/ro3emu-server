@@ -162,8 +162,8 @@ public sealed partial class FakePlayer
         }
     }
 
-    /// <summary>A party member's life (0-1), death and position, from its battle card (the healers' watch list).</summary>
-    private readonly record struct Member(double Life, bool Dead, Vec3? Pos);
+    /// <summary>A party member's life (0-1), death, position and maximum HP, from its battle card (the healers' watch list).</summary>
+    private readonly record struct Member(double Life, bool Dead, Vec3? Pos, long MaxHp = 0);
     private readonly Dictionary<long, Member> _members = [];
 
     /// <summary>Under _partyLock: any member's battle card; the host's also moves the party.</summary>
@@ -171,7 +171,7 @@ public sealed partial class FakePlayer
     {
         var old = _members.GetValueOrDefault(guid, new Member(1, false, null));
         _members[guid] = new Member(battle.MaxHpValue > 1 ? Math.Clamp((double)battle.HpPercent / battle.MaxHpValue, 0, 1) : old.Life,
-            battle.PlayerLifeStatus == EPlayerLifeStatus.Dead, battle.Pos ?? old.Pos);
+            battle.PlayerLifeStatus == EPlayerLifeStatus.Dead, battle.Pos ?? old.Pos, battle.MaxHpValue > 1 ? battle.MaxHpValue : old.MaxHp);
         if (guid == _partyHost) HostBattle(battle);
     }
 
@@ -239,26 +239,62 @@ public sealed partial class FakePlayer
             catch (InvalidOperationException) { await Task.Delay(TimeSpan.FromSeconds(10), ct); }
             return true;
         }
-        if (at is not { } p) { await PauseAsync(2, 4, ct); return true; }
+        if (at is not { } p) { Trace("host", () => "no position"); await PauseAsync(2, 4, ct); return true; }
         // Out of a boss's marked area (FakePlayer.Dodge); run from a boss when low, then drink (FakePlayer.Potions); low
         // anywhere, drink.
-        if (await DodgeAsync(ct)) return true;
-        if (await EvadeAsync(ct)) { await DrinkAsync(ct); return true; }
+        if (await DodgeAsync(ct)) { Trace("dodge", () => "out of an area"); return true; }
+        if (await EvadeAsync(ct)) { Trace("evade", () => $"ran at {OwnLife():P0}"); await DrinkAsync(ct); return true; }
         if (await DrinkAsync(ct)) return true;
-        if (await SupportAsync(host, ct)) return true; // heals are for the host; revives reach the whole party
+        if (await SupportAsync(host, ct)) { Trace("support", () => "cast"); return true; } // heals are for the host; revives reach the whole party
         bool hostDead;
         lock (_partyLock) hostDead = _hostDead;
-        // A support class stays by its host (its buffs reach only so far); nobody fights on while the host lies dead.
-        bool keepClose = hostDead || _support.Count > 0 && Distance(p) > SupportReach;
+        // A support class stays by its host (its buffs reach only so far), except at a boss the leader marked, where it
+        // takes its own place (BossPlace: a ranged one would else run between the host and its ring); nobody fights on
+        // while the host lies dead.
+        bool atBoss = Marked() is { } mark && ctx.Support.IsBoss((long)mark.EntityTemplateID);
+        bool keepClose = hostDead || _support.Count > 0 && Distance(p) > SupportReach && !atBoss;
         // On a PK map an enemy player at the host comes first (FakePlayer.Raid), the leader's mark if it is one.
         if (!keepClose && (MarkedPlayer() ?? EnemyPlayer(p.X, p.Z)) is { } enemy) { await StrikePlayerAsync(enemy, ct); return true; }
         // The leader's mark first, else the monster nearest the bot around the host.
         var target = keepClose ? null : Marked() ?? _view.Monsters().Where(m => Apart(m.MovementInfo.Pos, p) <= HostReach)
             .OrderBy(m => Distance(m.MovementInfo.Pos)).FirstOrDefault();
+        Trace("step", () => $"host {Distance(p):F1} m, keepClose {keepClose}, target {(target == null ? "none" : $"{target.EntityTemplateID} at {Distance(target.MovementInfo.Pos):F1} m")}");
         if (target != null) await StrikeAsync(target, ct);
-        else if (Distance(p) > 5) await GoAsync(Near(new MapPoint(p.X, p.Y, p.Z, 0), 2, 4) ?? new MapPoint(p.X, p.Y, p.Z, 0), ct, short_: 1f);
+        else if (Distance(p) > 5) await FollowAsync(p, ct);
         else await PauseAsync(1, 3, ct);
         return true;
+    }
+
+    /// <summary>
+    /// To the host's side. A host far off (a teleport across the map) can be past the path search (NavPath.MaxExpanded):
+    /// the bot then walks <see cref="FollowLeg"/> m its way and searches again from there, else it shuffles. A failed
+    /// walk returns at once, so it never loops on the spot sending nothing (it spun 4 cores on a host 270 m away).
+    /// </summary>
+    private async Task FollowAsync(Vec3 host, CancellationToken ct)
+    {
+        if (await GoAsync(Near(new MapPoint(host.X, host.Y, host.Z, 0), 2, 4) ?? new MapPoint(host.X, host.Y, host.Z, 0), ct, short_: 1f)) return;
+        SyncPosition();
+        float dx = host.X - _pos.X, dz = host.Z - _pos.Z, length = MathF.Max(0.1f, MathF.Sqrt(dx * dx + dz * dz));
+        var leg = new MapPoint(_pos.X + dx / length * FollowLeg, _pos.Y, _pos.Z + dz / length * FollowLeg, 0);
+        if (length > FollowLeg && Near(leg, 0, 8) is { } partway && await GoAsync(partway, ct)) return;
+        await ShuffleAsync(6, ct);
+    }
+
+    private const float FollowLeg = 30;
+
+    private readonly Dictionary<string, DateTime> _traced = [];
+
+    /// <summary>A decision of a bot named in --trace (PopulationOptions.Trace), at most once per 3 s for each kind.</summary>
+    private void Trace(string kind, Func<string> text)
+    {
+        if (!ctx.Options.Trace.Contains(entry.Name)) return;
+        var now = DateTime.UtcNow;
+        lock (_traced)
+        {
+            if (_traced.TryGetValue(kind, out var last) && now - last < TimeSpan.FromSeconds(3)) return;
+            _traced[kind] = now;
+        }
+        PopulationContext.Log($"{entry.Name} [trace] {kind}: {text()}");
     }
 
     /// <summary>The monster the party leader has locked, while the bot sees it.</summary>
@@ -297,13 +333,20 @@ public sealed partial class FakePlayer
         if (InParty && anyBoss)
         {
             // Round a boss each party member takes its own place, not one heap on the boss (the player's wish). It moves
-            // only when out of its reach (or a ranged one too close): every walk is time not spent attacking.
+            // only when out of its reach, or a ranged one closer than its ring (it backs off): every walk is time not
+            // spent attacking.
             float own = AttackReach() is >= RangedReach and var far ? far : 3f, now = Distance(at);
-            bool move = now > own - 0.4f || own >= RangedReach && now < 3f;
+            bool move = now > own - 0.4f || own >= RangedReach && now < Ring(own) - RangedSlack;
             var place = BossPlace(at);
+            Trace("place", () => $"reach {own:F1}, at {now:F1} m, move {move}, place {Apart(place, at):F1} m out, {Distance(place):F1} m away");
             // Not back into a marked area while it lasts (FakePlayer.Dodge): it waits at the edge.
-            if (move && InDanger(place)) { await Task.Delay(500, ct); return; }
-            if (move && Distance(place) > 1f && !await GoAsync(new MapPoint(place.X, place.Y, place.Z, 0), ct)) { await ShuffleAsync(6, ct); return; }
+            if (move && InDanger(place)) { Trace("danger", () => "waits at the edge"); await Task.Delay(500, ct); return; }
+            if (move && Distance(place) > 1f && !await GoAsync(new MapPoint(place.X, place.Y, place.Z, 0), ct))
+            {
+                Trace("place-walk", () => "no path: shuffles");
+                await ShuffleAsync(6, ct);
+                return;
+            }
         }
         else if (Distance(at) > reach && !await GoAsync(new MapPoint(at.X, at.Y, at.Z, 0), ct, short_: reach - 1)) { await ShuffleAsync(6, ct); return; }
         long skill = ctx.Plan.NormalAttack(_job) is > 0 and var s ? s : FallbackAttack;
@@ -323,32 +366,48 @@ public sealed partial class FakePlayer
     /// This bot's own place round a boss at <paramref name="at"/>: its angle by the golden angle of its role id (members
     /// fall all round, none on another's spot), close in for those who swing (one of three rings within the 3 m of a
     /// normal attack), kept at a distance by those who fight from afar (<see cref="AttackReach"/> 5 m or more: mages,
-    /// archers, snipers), 5-8 m out and within their reach. A walkable point is taken as it is; over a wall or a cliff
-    /// the boss itself.
+    /// archers, a riding Ranger's Warg Strike) on <see cref="Ring"/>, a few metres inside their reach (the player's wish:
+    /// they never go near a boss). A walkable point with a clear walk from the boss is taken, the angle turned a little
+    /// at a time round a wall; failing that a ranged bot stays where it is if its attacks reach from there, else the boss.
     /// </summary>
     private Vec3 BossPlace(Vec3 at)
     {
-        const double GoldenAngle = 2.39996322972865332; // radians
+        const double GoldenAngle = 2.39996322972865332, Turn = 0.6; // radians
         long id = entry.RoleId;
         double angle = id % 997 * GoldenAngle;
         float reach = AttackReach();
-        float ring = reach >= RangedReach ? Math.Clamp(5f + id % 4, 4f, reach - 1) : 1.6f + id % 3 * 0.5f;
-        float x = at.X + ring * (float)Math.Sin(angle), z = at.Z + ring * (float)Math.Cos(angle);
-        return Map?.Nav is { } nav && nav.WalkHeight(x, z, at.Y) is { } y && nav.CanWalk(at.X, at.Y, at.Z, x, z)
-            ? new Vec3 { X = x, Y = y, Z = z } : at;
+        bool ranged = reach >= RangedReach;
+        float ring = ranged ? Ring(reach) : 1.6f + id % 3 * 0.5f;
+        for (int k = 0; k < (ranged ? 8 : 1); k++)
+        {
+            double a = angle + (k % 2 == 0 ? 1 : -1) * (k + 1) / 2 * Turn;
+            float x = at.X + ring * (float)Math.Sin(a), z = at.Z + ring * (float)Math.Cos(a);
+            if (Map?.Nav is { } nav && nav.WalkHeight(x, z, at.Y) is { } y && nav.CanWalk(at.X, at.Y, at.Z, x, z))
+                return new Vec3 { X = x, Y = y, Z = z };
+        }
+        SyncPosition();
+        return ranged && Distance(at) <= reach - 0.5f && Distance(at) >= RangedReach ? new Vec3 { X = _pos.X, Y = _pos.Y, Z = _pos.Z } : at;
     }
+
+    /// <summary>A ranged bot's distance from a boss: 3-5 m inside its reach (one of three by its role id), at least
+    /// <see cref="RangedReach"/>: an 18 m bow stands 13-15 m out, a 10 m spell 5-7 m.</summary>
+    private float Ring(float reach) => Math.Max(RangedReach, reach - 3f - entry.RoleId % 3);
 
     /// <summary>A reach from which a party member keeps its distance from a boss.</summary>
     private const float RangedReach = 5;
+    /// <summary>How far inside its ring a ranged bot lets a boss come before it backs off again.</summary>
+    private const float RangedSlack = 3;
     /// <summary>Attacks a party member makes before it looks round again (its mark, its place, its potions).</summary>
     private const int PartyStrikes = 16;
 
-    /// <summary>How far this bot hits from: a caster's spells (the shortest of its attack skills: every one must reach),
-    /// anyone else's normal attack (a bow's, a gun's or a weapon's).</summary>
+    /// <summary>How far this bot hits from: a caster's spells (the shortest of its aimed attack skills: every one must
+    /// reach; those round the caster wait for a boss that comes close), anyone else's normal attack (a bow's, a gun's,
+    /// a riding Ranger's Warg Strike or a weapon's).</summary>
     private float AttackReach()
     {
         if (Caster && _attacks.Count > 0)
-            return _attacks.Select(a => ctx.Support.Row(a.Group, a.Level)?.DistanceMax is > 0 and var cm ? cm / 100f : 0)
+            return _attacks.Where(a => a.Aim != AttackAim.Self)
+                .Select(a => ctx.Support.Row(a.Group, a.Level)?.DistanceMax is > 0 and var cm ? cm / 100f : 0)
                 .Where(r => r > 0).DefaultIfEmpty(0).Min();
         return ctx.Plan.NormalAttack(_job) is > 0 and var normal ? ctx.Support.Reach(normal) : 0;
     }

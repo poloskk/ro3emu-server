@@ -19,6 +19,29 @@ public sealed partial class FakePlayer
 
     private async Task BoostStepAsync(CancellationToken ct)
     {
+        await BoostOnceAsync(ct);
+        await TopUpAsync(ct);
+    }
+
+    private long _lastMaxHp;
+
+    /// <summary>
+    /// Full life when the bot's maximum HP jumps (its party card): in a real player's party, or on its map in a rival
+    /// raid, the server raises the bot's maximum to that player's (CharacterService.StrengthSource) but not its life, so a
+    /// bot of 20 000 HP under a maximum of a million read its card as 2% and ran from every boss (FakePlayer.Evade). GM
+    /// !hp in its own scope, clamped to the new maximum; a maximum that falls is only noted.
+    /// </summary>
+    private async Task TopUpAsync(CancellationToken ct)
+    {
+        long max;
+        lock (_partyLock) max = _members.TryGetValue(_view.Self, out var me) ? me.MaxHp : 0;
+        if (!InParty || max <= 0) return;
+        if (max > _lastMaxHp + _lastMaxHp / 20 && !await ctx.GmAsync(entry.Account, "!hp 999999999 999999999", ct, ownRole: true)) return;
+        _lastMaxHp = max;
+    }
+
+    private async Task BoostOnceAsync(CancellationToken ct)
+    {
         if (!InParty || _boostedJob == _job || entry.Level == 0 || !entry.Prepared) return;
         // The level cap first, then every later job of its line (FakePlayer.Growth.TakeJobAsync): a party member fights
         // in its line's last job.
@@ -41,6 +64,9 @@ public sealed partial class FakePlayer
         PopulationContext.Log($"{entry.Name}: boosted for its party (level {entry.Level}, job {_job}: job level and skills at their caps, a level-capped build)");
     }
 
+    /// <summary>How far a stat may stand above its build's share before the points are spent again.</summary>
+    private const int Rebuild = 5;
+
     /// <summary>The free points topped up to a level-capped character's (once: the bonus stays), then spent on the build.</summary>
     private async Task MaxStatsAsync(CancellationToken ct)
     {
@@ -56,7 +82,18 @@ public sealed partial class FakePlayer
             points += bonus;
         }
         var current = Enumerable.Range(1, 6).Select(i => plan.BaseProperty.GetValueOrDefault(i, 1)).ToArray();
-        var wanted = ctx.Stats.Spend(current, points, ctx.Stats.For(_job));
+        var weights = ctx.Stats.For(_job);
+        // Points spent on another build (an earlier one of its line) are reset (31501, free) and spent again on this one.
+        var fresh = ctx.Stats.Spend([1, 1, 1, 1, 1, 1], plan.UsedAttrPoints + points, weights);
+        if (current.Where((v, i) => v > fresh[i] + Rebuild).Any()
+            && ResetAttrPointResp.Parser.ParseFrom(await RequestAsync(CharacterService.ResetAttrPoints,
+                new ResetAttrPointReq { PlanIndex = StatPlan }, ct)).Result == 0)
+        {
+            PopulationContext.Log($"{entry.Name}: stats reset for its build");
+            current = [1, 1, 1, 1, 1, 1];
+            points += plan.UsedAttrPoints;
+        }
+        var wanted = ctx.Stats.Spend(current, points, weights);
         if (wanted.SequenceEqual(current)) return;
         var req = new AllocateAttrPointReq { PlanIndex = StatPlan };
         for (int i = 0; i < 6; i++) req.Points[i + 1] = wanted[i];

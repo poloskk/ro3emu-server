@@ -55,6 +55,10 @@ public sealed class GearPlan(GameData data)
         return pieces;
     }
 
+    /// <summary>The ItemConfig _iSubType of the weapon in a worn set (FakePlayer's roster Gear, item ids), 0 for none.</summary>
+    public long HeldSubType(string worn) => worn.Split(',').Select(s => long.TryParse(s, out long id) ? ItemConfig.Get(data, id) : null)
+        .FirstOrDefault(i => i is { EquipPart: 1 or 2 })?.SubType ?? 0;
+
     /// <summary>StrengthenTable's cost of raising a grid from <paramref name="from"/> by <paramref name="steps"/>
     /// levels (each level's _kDeplete), or null when a level is missing or needs more than <paramref name="baseLevel"/>
     /// (_iLev): EquipmentService refuses it.</summary>

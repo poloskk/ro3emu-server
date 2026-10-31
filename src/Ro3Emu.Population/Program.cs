@@ -4,12 +4,12 @@ using Ro3Emu.Population;
 // NPCs, chat, and hunt in the fields next to town. Run it on the server's machine (it uses the loopback GM tool).
 // usage: Ro3Emu.Population [--bots 30] [--server http://127.0.0.1:5380] [--data <exported data dir>]
 //        [--towns 10100,...] [--hunters 0.25] [--vendors 0.15] [--vend-quality 5,6] [--chat 0.4 (lines per player per minute)]
-//        [--logins 8] [--step-ms 200] [--max-busy 0.7] [--roster <file>] [--mvp-raids 3] [--mvp-raid-size 8]
+//        [--logins 8] [--step-ms 200] [--max-busy 0.7] [--roster <file>] [--mvp-raids 3] [--mvp-raid-size 8] [--trace name,...]
 PopulationOptions options;
 try { options = PopulationOptions.Parse(args); }
 catch (Exception e) when (e is ArgumentException or FormatException)
 {
-    Console.WriteLine($"{e.Message}\nusage: Ro3Emu.Population [--bots 30] [--server http://127.0.0.1:5380] [--data data] [--towns 10100,...] [--hunters 0.25] [--vendors 0.15] [--vend-quality q,q] [--chat 0.4] [--logins 8] [--step-ms 200] [--max-busy 0.7] [--roster file] [--mvp-raids 3] [--mvp-raid-size 8]");
+    Console.WriteLine($"{e.Message}\nusage: Ro3Emu.Population [--bots 30] [--server http://127.0.0.1:5380] [--data data] [--towns 10100,...] [--hunters 0.25] [--vendors 0.15] [--vend-quality q,q] [--chat 0.4] [--logins 8] [--step-ms 200] [--max-busy 0.7] [--roster file] [--mvp-raids 3] [--mvp-raid-size 8] [--trace name,...]");
     return 2;
 }
 if (options.GameDataDir == "data") options.GameDataDir = FindDataDir();

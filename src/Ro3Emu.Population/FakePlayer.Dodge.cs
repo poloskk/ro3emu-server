@@ -22,7 +22,8 @@ public sealed partial class FakePlayer
 
     private void OnBossSkill(UseInSkillInfo cast)
     {
-        if (!InParty || cast.SrcID == _view.Self || !ctx.Support.StrikesArea(cast.SkillID)) return;
+        // A tank stands in it and holds the boss (FakePlayer.Support.Tank).
+        if (!InParty || Tank || cast.SrcID == _view.Self || !ctx.Support.StrikesArea(cast.SkillID)) return;
         var boss = _view.Monsters().FirstOrDefault(m => (long)m.Uuid == cast.SrcID);
         if (boss == null || !ctx.Support.IsBoss((long)boss.EntityTemplateID)) return;
         var center = cast.TargetId != 0 && cast.TargetPos != null ? cast.TargetPos : boss.MovementInfo.Pos;
@@ -54,7 +55,6 @@ public sealed partial class FakePlayer
         var away = new MapPoint(d.Center.X + dx / length * out_, _pos.Y, d.Center.Z + dz / length * out_, 0);
         // Straight out when the ground allows it, else anywhere just beyond the edge.
         if ((Near(away, 0, 2) ?? Near(new MapPoint(d.Center.X, _pos.Y, d.Center.Z, 0), out_, out_ + 2)) is not { } to) return false;
-        await GoAsync(to, ct);
-        return true;
+        return await GoAsync(to, ct); // no way out: it fights on rather than trying again at once
     }
 }

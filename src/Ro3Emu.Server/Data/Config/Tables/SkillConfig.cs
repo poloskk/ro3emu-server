@@ -42,6 +42,8 @@ public readonly partial record struct SkillConfig(JsonElement Row)
     [ConfigField("_iRelease")] public partial long Release { get; }
     [ConfigField("_iScriptShow")] public partial long ScriptShow { get; }
     [ConfigField("_iSkillAdvanced")] public partial long SkillAdvanced { get; }
+    /// <summary>The LC_ConditionList row the client checks before it offers the skill (a weapon, a mount ridden or not).</summary>
+    [ConfigField("_iSkillCondition", Optional = true)] public partial long SkillCondition { get; }
     [ConfigField("_iSkillCri")] public partial long SkillCri { get; }
     [ConfigField("_iSkillEffectLevel")] public partial long SkillEffectLevel { get; }
     [ConfigField("_iSkillHit")] public partial long SkillHit { get; }

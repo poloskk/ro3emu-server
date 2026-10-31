@@ -494,6 +494,26 @@ public sealed partial class MonsterService : MonsterBrain, IGameTicker
         m.Returning = false;
     }
 
+    /// <summary>
+    /// A Provoke or Taunt (SkillConfig _kScriptLogic) draws the monster to its caster and holds it there for
+    /// <paramref name="holdMs"/>, the skill's _iCD: until it can be cast again the other players' hits do not take the
+    /// monster away (<see cref="EngageByHit"/>), so a tank keeps an MVP's attacks. (inferred: every hit otherwise turns
+    /// a monster to its latest attacker.)
+    /// </summary>
+    public void Provoke(MonsterUnit m, GameSession caster, long holdMs)
+    {
+        Engage(m, caster);
+        if (ReferenceEquals(m.Target, caster)) m.ProvokedUntilMs = NowMs + Math.Max(0, holdMs);
+    }
+
+    /// <summary>A damaging hit turns the monster to its attacker, unless another player's Provoke still holds it.</summary>
+    public void EngageByHit(MonsterUnit m, GameSession attacker)
+    {
+        if (m.Target is { } held && !ReferenceEquals(held, attacker) && NowMs < m.ProvokedUntilMs
+            && !held.Dead && held.WorldScene == m.WorldScene) return;
+        Engage(m, attacker);
+    }
+
     /// <summary>Authoritative target transitions, consumed by hatred/lock notifications and facing effects.</summary>
     public List<Func<MonsterUnit, GameSession?, GameSession?, Task>> TargetChanged { get; } = new();
 

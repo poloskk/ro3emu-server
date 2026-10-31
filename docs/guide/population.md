@@ -106,10 +106,23 @@ Every player is planned once (`GuildPlan`, kept in the roster): about 60 % belon
   use there (weapon, mount, range, wall) rests half a minute; out of SP it is topped up (GM `!hp` in its own scope, at
   most every 30 s). Below half its life it drinks its level's HP potion (`GearPlan.Potion`: `_iUseEffect` RecoverFixed
   HP, through 31323 under the server's cooldowns), the potions from `!kit` when it runs low.
+- **Skills the client would offer**: a bot casts only what `_iSkillCondition` (LC_ConditionList) allows it: its weapon,
+  a mount ridden or not (`SupportKit.Usable`). A riding Ranger fights with Warg Hunt and Warg Bite and its normal
+  attack, which riding turns into Warg Strike (the auto-warg build, AGI and LUK); its bow skills wait. A Mechanic in its
+  Madogear fights with the Madogear line. A skill branch that excludes another (a `_kPreSkillRequired` level of -1: the
+  Mechanic's Madogear and Axe lines) is learned one or the other, never neither. Weak fillers are measured against the
+  strongest attack it can cast often (a cooldown of 15 s at most), not against a long ultimate.
 - **Bosses**: a mini-boss or MVP (`_iNPCSubType` 3, 4 or 6) within 7 m sends a fake player on its own running 12 m the
   other way; it fights one only with its skills from 9 m, never toe to toe, and a hunter on its own leaves bosses
-  alone. In a real player's party it fights a boss up close like the player and runs only below 30 % of its life,
-  drinking a potion once away.
+  alone. In a real player's party it fights a boss beside the player and runs only below 30 % of its life, drinking a
+  potion once away. Ranged classes (their normal attack, or a caster's shortest aimed spell, reaches 5 m or more: archers,
+  mages, healers) keep 3-5 m inside their reach (a bow 13-15 m out) and back off when the boss comes closer; attacks that
+  do not reach from there wait. **Tanks** (JobConfig `_iDungeonJobPositionID` 101: Swordman, Crusader, Paladin, Royal
+  Guard) never dodge or run in a party: they stand in its area skills, drink, and cast Provoke whenever it is ready. A
+  Provoke or Taunt (`_kScriptLogic`) holds a monster on its caster for the skill's `_iCD` against the other players'
+  hits (`MonsterService.Provoke`, inferred), for a real player's tank too.
+- A bot's **life follows its new maximum**: when its party card's maximum HP jumps (it takes the player's strength) it
+  is topped up (GM `!hp` in its own scope); before, a bot read itself at 2 % and ran from every boss.
 - When the party leader starts a **dungeon**, its fake players are always ready (42033 → 30406 agree, also on the
   42046 reminder); the server then moves them in with the leader.
 - A real player's **friend request** (FriendService push `onFriendApply`) is accepted after a few seconds; requests
