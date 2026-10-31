@@ -203,7 +203,7 @@ internal static class Flows
         // Player stalls show on every line of a busy town (fake players open a second Prontera line).
         args.AddRange(["--Ro3Emu:Pass:FreeProducts=true", "--Ro3Emu:StallsOnAllLines=true", "--Ro3Emu:ExpRate=" + Number(realm.ExpRate),
             "--Ro3Emu:BonusTimeDrain=" + Number(realm.BonusTimeDrain), "--Ro3Emu:CrystalDrops:Chance=" + Number(realm.CrystalDropChance),
-            "--Ro3Emu:CrystalGear:Rate=" + Number(realm.CrystalGearRate)]);
+            "--Ro3Emu:CrystalGear:Rate=" + Number(realm.CrystalGearRate), "--Ro3Emu:GmButton=" + (realm.GmButton ? "true" : "false")]);
 
         Ui.Step("Starting the server");
         Ui.Phase("server");

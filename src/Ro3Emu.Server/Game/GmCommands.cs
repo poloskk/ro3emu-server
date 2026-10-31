@@ -125,7 +125,9 @@ public sealed class GmCommands(IOptions<ServerOptions> options, GameData data, S
         string param = req.ParamString ?? "";
         if (param.StartsWith(PanelProbe, StringComparison.Ordinal))
         {
-            await session.SendGameAsync(GeneralProcGm, new GeneralGMProcRsp { Result = 0, ErrInfo = param + (Allowed(session) ? ":1" : ":0") });
+            // ServerOptions.GmButton false hides the button even from a GM; its "!" commands still work.
+            bool show = Allowed(session) && options.Value.GmButton;
+            await session.SendGameAsync(GeneralProcGm, new GeneralGMProcRsp { Result = 0, ErrInfo = param + (show ? ":1" : ":0") });
             return;
         }
         string reply;

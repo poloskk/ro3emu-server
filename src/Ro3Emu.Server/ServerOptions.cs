@@ -119,6 +119,12 @@ public sealed class ServerOptions
     /// </summary>
     public bool RivalRaidsMatchPlayers { get; set; } = true;
 
+    /// <summary>
+    /// Whether an account allowed GM commands sees the HUD's GM button (the panel capability probe, GmCommands.PanelAsync,
+    /// answers ":1"); false hides it, the chat "!" commands still work (not original: an owner's choice of HUD).
+    /// </summary>
+    public bool GmButton { get; set; } = true;
+
     /// <summary>Sacred Relic Crystals from elite, mini-boss and MVP kills, rarely from ordinary ones (inferred, not
     /// original: a realm policy; off by default).</summary>
     public CrystalDropOptions CrystalDrops { get; set; } = new();

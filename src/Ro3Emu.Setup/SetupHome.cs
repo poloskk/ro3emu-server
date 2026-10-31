@@ -87,6 +87,10 @@ internal sealed class Settings
     /// price (Ro3Emu:CrystalGear:Rate; a level 90 red armour ~240 crystals at 5000); 0 = not sold.</summary>
     public long CrystalGearRate { get; set; } = 5000;
 
+    /// <summary>The GM button on the game's HUD for a GM account (the server's Ro3Emu:GmButton); false hides it, chat "!"
+    /// commands still work.</summary>
+    public bool GmButton { get; set; } = true;
+
     /// <summary>The highest publisher release installed into each folder: an older signed manifest is refused (no downgrade).</summary>
     public Dictionary<string, long> InstalledSequence { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 

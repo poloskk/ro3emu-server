@@ -606,6 +606,13 @@ public sealed class CharacterTests : IAsyncLifetime
         var done = await Next(alice, GmCommands.GeneralProcGm, GeneralGMProcRsp.Parser);
         Assert.Equal(0, done.Result);
         Assert.Contains("20", done.ErrInfo);
+
+        // ServerOptions.GmButton off: the button is hidden from the GM, whose panel ops still run.
+        _app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<ServerOptions>>().Value.GmButton = false;
+        await alice.SendGameAsync(GmCommands.GeneralProcGm, new GeneralGMProcReq { ParamString = "ro3-gm-panel-capability-v1:4" });
+        Assert.Equal("ro3-gm-panel-capability-v1:4:0", (await Next(alice, GmCommands.GeneralProcGm, GeneralGMProcRsp.Parser)).ErrInfo);
+        await alice.SendGameAsync(GmCommands.GeneralProcGm, new GeneralGMProcReq { GmType = (GmOpEnum)24, ParamString = "21,7" });
+        Assert.Equal(0, (await Next(alice, GmCommands.GeneralProcGm, GeneralGMProcRsp.Parser)).Result);
     }
 
     private static string RepoRoot()
