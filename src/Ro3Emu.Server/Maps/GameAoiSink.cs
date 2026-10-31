@@ -22,10 +22,15 @@ public sealed class GameAoiSink : IAoiSink
     /// </summary>
     private const int WalkDurationMs = 1000;
 
+    /// <summary>The camp a viewer is shown another player in when it is not that player's own (FieldPk.CampSeen).</summary>
+    public Func<GameSession, GameSession, long?>? CampSeen { get; set; }
+
     public Task EnterAsync(GameSession viewer, GameSession subject)
     {
         var view = new AoIViewChangeData();
-        view.Bases.Add(RoleSessionService.PlayerEntity(subject));
+        var entity = RoleSessionService.PlayerEntity(subject);
+        if (CampSeen?.Invoke(viewer, subject) is { } camp) entity.EntityCamp = camp;
+        view.Bases.Add(entity);
         return viewer.SendGameAsync(SyncAoiView, view);
     }
 

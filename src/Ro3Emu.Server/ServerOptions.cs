@@ -106,6 +106,19 @@ public sealed class ServerOptions
     /// </summary>
     public bool PartyBotsMatchLeader { get; set; } = true;
 
+    /// <summary>
+    /// Field maps with an MVP (MVPConfig _iMapID) are PK maps: players fight each other there, except party members and
+    /// guildmates (FieldPk; not original: a realm policy for an offline realm, so rival raids contest the MVP).
+    /// </summary>
+    public bool MvpMapsPk { get; set; } = true;
+
+    /// <summary>
+    /// A fake player in a party of fake players (the population's rival raids) on an MVP map fights with at least the
+    /// combat attributes of a real player on that map (FieldPk.Champion), so a rival raid is a match for a real player's
+    /// party, whose bots already fight as strong as their leader (not original: a realm policy for an offline realm).
+    /// </summary>
+    public bool RivalRaidsMatchPlayers { get; set; } = true;
+
     /// <summary>Sacred Relic Crystals from elite, mini-boss and MVP kills, rarely from ordinary ones (inferred, not
     /// original: a realm policy; off by default).</summary>
     public CrystalDropOptions CrystalDrops { get; set; } = new();

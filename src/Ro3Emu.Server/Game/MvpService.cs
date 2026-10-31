@@ -184,6 +184,11 @@ public sealed partial class MvpService : IGameTicker
         return s.SendGameAsync(BriefInfo, rsp);
     }
 
+    /// <summary>The MVPs alive on public line 1 and where they stand (loopback /ro3emu/mvps: the population's rival raids
+    /// go to them, ServerOptions.MvpMapsPk).</summary>
+    public IReadOnlyList<(int Cfg, long Map, float X, float Z)> Alive() =>
+        [.. States().Values.Where(st => st.Unit is { Dead: false }).Select(st => (st.Def.CfgId, st.Def.MapId, st.Unit!.X, st.Unit.Z))];
+
     /// <summary>43011: today's used reward counts (shared by all MVPs).</summary>
     public async Task AwardNumAsync(GameSession s)
     {

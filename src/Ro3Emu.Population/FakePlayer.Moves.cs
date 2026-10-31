@@ -56,7 +56,7 @@ public sealed partial class FakePlayer
     {
         var bot = _bot ?? throw new IOException("not connected");
         using var loaded = bot.Inbox.Expect(e => e.IsGame(MsgId.SceneLoaded));
-        await SendAsync(MsgId.SceneLoaded, new SceneLoadedReq { SceneId = sceneEntry, ViewMaxCount = _viewCap }, ct);
+        await SendAsync(MsgId.SceneLoaded, new SceneLoadedReq { SceneId = sceneEntry, ViewMaxCount = ViewCapIn(sceneEntry) }, ct);
         var load = SceneLoadedResp.Parser.ParseFrom((await loaded.WaitAsync(TimeSpan.FromSeconds(30), ct)).Body);
         if (load.Result != 0) throw new InvalidOperationException($"scene {sceneEntry} load refused: {load.Result}");
         var me = EntitySelf.Parser.ParseFrom((await self.WaitAsync(TimeSpan.FromSeconds(30), ct)).Body).Base;
@@ -88,6 +88,9 @@ public sealed partial class FakePlayer
     /// </summary>
     private const ulong ViewCap = 1;
     private ulong _viewCap = ViewCap;
+
+    /// <summary>The view cap a scene is loaded with: more players on a PK map (FakePlayer.Raid.PkViewCap).</summary>
+    private ulong ViewCapIn(long sceneEntry) => ctx.PkMaps.Contains(sceneEntry) ? Math.Max(_viewCap, PkViewCap) : _viewCap;
     private int _switching;
     /// <summary>The player's camp in the current scene (EntityBase.entityCamp: a siege's attackers 1, defenders 2).</summary>
     private long _camp;

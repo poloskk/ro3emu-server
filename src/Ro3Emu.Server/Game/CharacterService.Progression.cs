@@ -302,7 +302,13 @@ public sealed partial class CharacterService
         await SyncAsync(session, RoleBaseInfoSync, BuildBaseInfo(session));
         var entity = RoleSessionService.PlayerEntity(session);
         entity.NotifyType = EntityBase.Types.NotifyType.Base;
-        await ToSelfAndViewersAsync(session, EntityBaseChange, entity);
+        if (fieldPk.On(session))
+        {
+            // Each viewer in the camp it sees this player in (FieldPk).
+            await session.SendGameAsync(EntityBaseChange, entity);
+            foreach (var viewer in world.Viewers(session)) await viewer.SendGameAsync(EntityBaseChange, fieldPk.Seen(viewer, session, entity));
+        }
+        else await ToSelfAndViewersAsync(session, EntityBaseChange, entity);
         await SendStatsAsync(session);
     }
 

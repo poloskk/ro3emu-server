@@ -51,6 +51,7 @@ public sealed class PopulationRunner(PopulationOptions options)
             Gear = new GearPlan(data),
             Exchange = goods.Exchange(options.CrystalGearRate, CrystalGearQuality, CrystalCurrency),
             ListingFee = goods.ListingFee,
+            PkMaps = data.Table("MVPConfig").Values.Select(r => (long)GameData.Int(r, "_iMapID")).Where(m => m > 0).ToHashSet(),
         };
         PopulationContext.Log($"Vendors list {ctx.Exchange.Count} goods in the trade exchange");
         int movers = 0;
@@ -62,7 +63,8 @@ public sealed class PopulationRunner(PopulationOptions options)
         }
         PopulationContext.Log($"{_players.Count} fake players starting");
         await Task.WhenAll([.. LoginOrder(_players).Select(p => p.RunAsync(ct)), ReportAsync(ct),
-            new SiegeCoordinator(ctx, _players, SiegeCoordinator.FirstArea(data)).RunAsync(ct)]);
+            new SiegeCoordinator(ctx, _players, SiegeCoordinator.FirstArea(data)).RunAsync(ct),
+            new MvpRaidCoordinator(ctx, _players).RunAsync(ct)]);
         foreach (var p in _players) await p.DisposeAsync();
         roster.Save();
         PopulationContext.Log("stopped");

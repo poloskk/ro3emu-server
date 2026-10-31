@@ -222,8 +222,9 @@ public sealed partial class CharacterService
     /// <summary>A match owner's replacement build (null: the character's own), e.g. a Survivor Battle career.</summary>
     public Func<GameSession, IReadOnlyList<(long Id, double Value)>?>? MatchAttributes { get; set; }
 
-    /// <summary>ServerOptions.PartyBotsMatchLeader: the real player whose combat attributes a fake player fights with at
-    /// least (TeamService.BotLeader), else null. That player's own sheet never asks again (it is no fake player).</summary>
+    /// <summary>ServerOptions.PartyBotsMatchLeader / RivalRaidsMatchPlayers: the real player whose combat attributes a fake
+    /// player fights with at least (TeamService.BotLeader, FieldPk.Champion), else null. That player's own sheet never asks
+    /// again (it is no fake player).</summary>
     public Func<GameSession, GameSession?>? StrengthSource { get; set; }
 
     /// <summary>A real player's sheet as its party's fake players read it: kept for <see cref="LeaderSheetMs"/>, since every

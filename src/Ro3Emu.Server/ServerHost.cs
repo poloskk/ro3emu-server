@@ -155,6 +155,7 @@ public static class ServerHost
         builder.Services.AddSingleton<MsgCatalog>();
         builder.Services.AddSingleton<IAoiSink, GameAoiSink>();
         builder.Services.AddSingleton<World>();
+        builder.Services.AddSingleton<FieldPk>();
         builder.Services.AddSingleton<WorldData>();
         builder.Services.AddSingleton<SceneService>();
         builder.Services.AddSingleton<WorldEffectsService>();
@@ -329,6 +330,13 @@ public static class ServerHost
             }).ToArray()));
             return Results.Json(online);
         });
+        // The live field MVPs for the population's rival raids (loopback only): read on the loop, where they change.
+        app.MapGet("/ro3emu/mvps", async (HttpContext context, MvpService mvps, GameLoop loop) =>
+        {
+            if (context.Connection.RemoteIpAddress is not { } ip || !System.Net.IPAddress.IsLoopback(ip)) return Results.NotFound();
+            var alive = await loop.InvokeAsync(() => Task.FromResult(mvps.Alive().Select(m => new { cfg = m.Cfg, map = m.Map, x = m.X, z = m.Z }).ToArray()));
+            return Results.Json(alive);
+        });
         app.MapFallback((HttpContext context) =>
         {
             app.Logger.LogWarning("HTTP unhandled {Method} {Path}", context.Request.Method, context.Request.Path);
@@ -357,8 +365,14 @@ public static class ServerHost
         app.Services.GetRequiredService<GuildCaravanService>(); // 05:00 settlement also covers offline orders
         app.Services.GetRequiredService<WildAfkService>(); // field drop accounting and Bonus Time ticker
         var teams = app.Services.GetRequiredService<TeamService>(); // party card ticker
-        if (app.Services.GetRequiredService<IOptions<ServerOptions>>().Value.PartyBotsMatchLeader)
-            app.Services.GetRequiredService<CharacterService>().StrengthSource = teams.BotLeader;
+        var fieldPk = app.Services.GetRequiredService<FieldPk>(); // MVP maps as PK maps (ServerOptions.MvpMapsPk)
+        fieldPk.TeamOf = role => teams.TeamOf(role).TeamId;
+        teams.RosterChanged.Add(fieldPk.RosterChangedAsync);
+        if (app.Services.GetRequiredService<IAoiSink>() is GameAoiSink aoi) aoi.CampSeen = fieldPk.CampSeen;
+        var strength = app.Services.GetRequiredService<IOptions<ServerOptions>>().Value;
+        if (strength.PartyBotsMatchLeader || strength.RivalRaidsMatchPlayers)
+            app.Services.GetRequiredService<CharacterService>().StrengthSource = s =>
+                (strength.PartyBotsMatchLeader ? teams.BotLeader(s) : null) ?? (strength.RivalRaidsMatchPlayers ? fieldPk.Champion(s) : null);
         app.Services.GetRequiredService<MvpService>(); // field MVP spawns and timers
         var territory = app.Services.GetRequiredService<TerritoryWarsService>();
         var escort = app.Services.GetRequiredService<TerritoryEscortService>();
@@ -369,7 +383,7 @@ public static class ServerHost
         var territoryCombat = app.Services.GetRequiredService<CombatService>();
         var league = app.Services.GetRequiredService<GuildLeagueService>(); // 30410-30412 hooks, battlefield scene/combat hooks
         territoryCombat.PlayerHostile = (a, b) => territory.Hostile(a, b) || escort.Hostile(a, b) || territory.WorldHostile(a, b)
-            || league.Hostile(a, b);
+            || league.Hostile(a, b) || fieldPk.Hostile(a, b);
         territoryCombat.MonsterTargetAllowed = (s, m) => territory.CanHitObjective(s, m) && escort.CanHitCart(s, m) && league.CanHit(s, m);
         app.Services.GetRequiredService<WorldEffectsService>(); // scene/monster effect hooks before clients connect
         app.Services.GetRequiredService<WorldCoreService>();

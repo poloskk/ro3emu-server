@@ -43,6 +43,18 @@ public sealed class PopulationContext(PopulationOptions options, string pem, Wor
     /// once across the realm: hundreds at a time kept the server two thirds busy and dropped real players.</summary>
     public SemaphoreSlim GearLane { get; } = new(4);
 
+    /// <summary>The field maps with an MVP (MVPConfig _iMapID): PK maps on the server (ServerOptions.MvpMapsPk).</summary>
+    public IReadOnlySet<long> PkMaps { get; init; } = new HashSet<long>();
+
+    /// <summary>A loopback JSON endpoint of the server (/ro3emu/mvps, /ro3emu/online), or null when it does not answer.</summary>
+    public async Task<System.Text.Json.Nodes.JsonNode?> GetJsonAsync(string path, CancellationToken ct)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        using var response = await gm.GetAsync(path, timeout.Token);
+        return response.IsSuccessStatusCode ? System.Text.Json.Nodes.JsonNode.Parse(await response.Content.ReadAsStringAsync(timeout.Token)) : null;
+    }
+
     /// <summary>
     /// A GM line as this player (the loopback /ro3emu/gm tool, docs/guide/gm-access.md); false when refused (not on
     /// the server's machine, or the account is not in GmAccounts).
@@ -171,7 +183,7 @@ public sealed partial class FakePlayer(RosterEntry entry, PopulationContext ctx,
             _scene = _view.SceneEntry;
             _job = (long)self.EntityTemplateID;
             _sender = new BotSendQueue(_bot.DisposeAsync);
-            await SendAsync(MsgId.ChangeViewCfg, new ChangeViewCfgReq { ViewMaxCount = ViewCap }, ct);
+            await SendAsync(MsgId.ChangeViewCfg, new ChangeViewCfgReq { ViewMaxCount = ViewCapIn(_scene) }, ct);
             Interlocked.Exchange(ref _lastPongMs, Environment.TickCount64);
             Online = true;
             _ = HeartbeatAsync(ct);

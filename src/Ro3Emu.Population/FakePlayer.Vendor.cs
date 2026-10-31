@@ -37,7 +37,7 @@ public sealed partial class FakePlayer
             if (stall.Itembase.Count < StallSize / 2) await RestockAsync(StallSize - stall.Itembase.Count, ct);
             await RetitleAsync(stall, ct);
         }
-        for (int i = _random.Next(10, 30); i > 0 && !ct.IsCancellationRequested && !InParty; i--)
+        for (int i = _random.Next(10, 30); i > 0 && !ct.IsCancellationRequested && !Called; i--)
         {
             await PauseAsync(20, 40, ct);
             if (_random.NextDouble() < 0.15) await FaceAsync(_random.Next(360), ct);

@@ -50,6 +50,7 @@ public sealed partial class CombatService : IGameTicker
     public const uint SkillCdUpdate = 31113;
 
     private readonly World _world;
+    private readonly FieldPk _fieldPk;
     private readonly MonsterService _monsters;
     private readonly CharacterService _character;
     private readonly SkillService _skills;
@@ -268,9 +269,10 @@ public sealed partial class CombatService : IGameTicker
 
     public CombatService(World world, MonsterService monsters, CharacterService character, SkillService skills, SceneService scene, BuffService buffs,
         WorldData worldData, SessionRegistry sessions, GameData data, GameLoop loop, ILogger<CombatService> log, PetService pets,
-        SeasonTalentService talents)
+        SeasonTalentService talents, FieldPk fieldPk)
     {
         this._world = world;
+        _fieldPk = fieldPk;
         this._monsters = monsters;
         this._character = character;
         this._skills = skills;
@@ -742,7 +744,7 @@ public sealed partial class CombatService : IGameTicker
             await ClearSkillsAsync(p);
             await _buffs.ClearOnDeathAsync(p);
             _log.LogInformation("{Name} died", p.Role?.Name);
-            await ToPlayerAndViewersAsync(p, EntityBaseChange, LifeState(p));
+            await PublishLifeAsync(p);
             if (!ReviveInfoOwners.Any(owns => owns(p)))
                 await p.SendGameAsync(ReviveInfo, new SyncClientPlayerReviveInfoNtf
                 {
@@ -887,7 +889,7 @@ public sealed partial class CombatService : IGameTicker
     public async Task PublishReviveAsync(GameSession p, MapPoint? point)
     {
         if (p.Role == null) return;
-        await ToPlayerAndViewersAsync(p, EntityBaseChange, LifeState(p));
+        await PublishLifeAsync(p);
         if (ReviveBroadcastedForTest is { } seam) await seam(p);
         if (p.Role == null) return;
         if (point is { } at) await _scene.TeleportInMapAsync(p, at);
@@ -980,6 +982,15 @@ public sealed partial class CombatService : IGameTicker
         long rehp = st[107] + st[101] * st.Data.GetValueOrDefault(1071) / 10000;
         long resp = st[108] + st[102] * st.Data.GetValueOrDefault(1081) / 10000;
         await _character.SetHpSpAsync(s, st[2000] + Math.Max(1, rehp), st[2001] + Math.Max(1, resp));
+    }
+
+    /// <summary>A player's death or revival to itself and its viewers, each in the camp it sees that player in (FieldPk).</summary>
+    private async Task PublishLifeAsync(GameSession p)
+    {
+        var entity = LifeState(p);
+        if (!_fieldPk.On(p)) { await ToPlayerAndViewersAsync(p, EntityBaseChange, entity); return; }
+        await p.SendGameAsync(EntityBaseChange, entity);
+        foreach (var viewer in _world.Viewers(p)) await viewer.SendGameAsync(EntityBaseChange, _fieldPk.Seen(viewer, p, entity));
     }
 
     private async Task ToPlayerAndViewersAsync(GameSession p, uint msgId, IMessage body)

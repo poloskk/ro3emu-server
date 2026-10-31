@@ -33,6 +33,9 @@ public sealed class PopulationOptions
     public int Seed { get; set; } = 20261026;
     /// <summary>Seconds between a fake player's guild steps (FakePlayer.Guild.cs).</summary>
     public int GuildEverySeconds { get; set; } = 600;
+    /// <summary>Rival raids hunting the field MVPs at once (MvpRaidCoordinator; 0: none), and players in each.</summary>
+    public int MvpRaids { get; set; } = 3;
+    public int MvpRaidSize { get; set; } = 8;
 
     public string Roster => RosterPath ?? Path.Combine(GameDataDir, "population", "roster.json");
 
@@ -61,6 +64,8 @@ public sealed class PopulationOptions
                 case "--max-busy": o.MaxBusy = double.Parse(value, CultureInfo.InvariantCulture); i++; break;
                 case "--seed": o.Seed = int.Parse(value, CultureInfo.InvariantCulture); i++; break;
                 case "--guild-every": o.GuildEverySeconds = int.Parse(value, CultureInfo.InvariantCulture); i++; break;
+                case "--mvp-raids": o.MvpRaids = int.Parse(value, CultureInfo.InvariantCulture); i++; break;
+                case "--mvp-raid-size": o.MvpRaidSize = int.Parse(value, CultureInfo.InvariantCulture); i++; break;
                 default: throw new ArgumentException($"unknown option {args[i]}");
             }
         }
@@ -69,7 +74,7 @@ public sealed class PopulationOptions
             if (!args.Contains("--active")) o.Active = 400;
             if (!args.Contains("--step-ms")) o.StepMs = 400;
         }
-        if (o.Bots < 0 || o.GuildEverySeconds < 1 || o.LoginsAtOnce < 1 || o.StepMs is < 50 or > 1000 || o.Active < 0 || o.MaxBusy is <= 0 or > 1 || o.HunterShare is < 0 or > 1 || o.VendorShare is < 0 or > 1 || o.HunterShare + o.VendorShare > 1) throw new ArgumentException("bad option value");
+        if (o.Bots < 0 || o.GuildEverySeconds < 1 || o.LoginsAtOnce < 1 || o.StepMs is < 50 or > 1000 || o.Active < 0 || o.MaxBusy is <= 0 or > 1 || o.HunterShare is < 0 or > 1 || o.VendorShare is < 0 or > 1 || o.HunterShare + o.VendorShare > 1 || o.MvpRaids < 0 || o.MvpRaidSize is < 2 or > 40) throw new ArgumentException("bad option value");
         return o;
     }
 }

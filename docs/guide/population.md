@@ -159,6 +159,28 @@ city: attackers go for the crystal (NPC 4900009) and hit defenders on the way, d
 attackers, and the dead revive (31013). They leave (30402) when their city's fight is over. `!siege open` (a GM test
 aid) opens a one-hour window at once. A dropped player logs in again after a pause that grows to two minutes.
 
+## Rival raids on the MVP maps
+
+With the server's `MvpMapsPk` (on by default) every field map with an MVP (`MVPConfig._iMapID`) is a PK map:
+players fight each other there unless they share a party or a guild (`FieldPk`). The client tells friend from
+enemy by camp (`LC_CampRelationUtils.IsEnemyByUnit` on the map's `campRelationshipConfig` row 1), so the server
+shows each viewer a player it may fight in camp 2 and everyone else in their own camp, and sends the bases again
+when a party changes. Neither the rule nor the raids are original content: the original server had only real
+players.
+
+Every minute `MvpRaidCoordinator` reads the live MVPs (loopback `/ro3emu/mvps`) and where the real players are
+(`/ro3emu/online`). It keeps `--mvp-raids` raids (3; 0 turns them off) of `--mvp-raid-size` fake players (8, level
+40 and up, never vendors) going for an alive MVP: first one on a map a real player is on (up to two raids there),
+else any other (one raid each). The leader creates a raid party (42001, `TeamType.Forty`) and invites the others,
+who follow it as they would a real player's lead; it walks to where the MVP stands and fights it. On those maps a
+raid leader fights an enemy player within 9 m of itself, and a party member (of a raid or of a real player) one
+within 9 m of the player it follows, before any monster; there every fake player is shown up to 30 players instead
+of one. Lone hunters there fight monsters only. A raid's players are boosted
+like a real player's party (`FakePlayer.Boost`), and with the server's `RivalRaidsMatchPlayers` (on) they fight with
+at least the combat attributes of a real player on their map, so a rival raid is a match for that player's party.
+A raid breaks up after 30-45 minutes, or when its leader or all but one of its players go offline, and its players
+go back home.
+
 Towns are the Kafra destinations (`MapLinkData.Capra`) with Prontera's `MapConfig._iSceneType` (inferred: the client
 does not name a "town" type).
 

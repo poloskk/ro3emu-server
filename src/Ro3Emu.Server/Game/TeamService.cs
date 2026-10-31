@@ -113,7 +113,7 @@ public sealed partial class TeamService(SessionRegistry sessions, CharacterServi
         return null;
     }
 
-    private static bool IsFakePlayer(string? account) =>
+    internal static bool IsFakePlayer(string? account) =>
         account != null && account.StartsWith(ServerOptions.FakePlayerAccountPrefix, StringComparison.Ordinal)
         && account.Length > ServerOptions.FakePlayerAccountPrefix.Length && account[ServerOptions.FakePlayerAccountPrefix.Length..].All(char.IsAsciiDigit);
 

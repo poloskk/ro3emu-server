@@ -99,7 +99,9 @@ public sealed partial class FakePlayer
     {
         bool free;
         lock (_partyLock) free = _partyId == 0;
-        if (free && !ctx.IsBot(invite.InviteGuid) && _scene != SiegeScene) _ = AcceptPartyAsync(invite);
+        // A real player's invitation, or its rival raid's leader's (FakePlayer.Raid).
+        bool welcome = !ctx.IsBot(invite.InviteGuid) || invite.InviteGuid == RaidLeader;
+        if (free && welcome && _scene != SiegeScene) _ = AcceptPartyAsync(invite);
     }
 
     private async Task AcceptPartyAsync(NotifyInvitee invite)
@@ -125,17 +127,24 @@ public sealed partial class FakePlayer
         catch (Exception e) when (e is TimeoutException or IOException or OperationCanceledException) { }
     }
 
-    /// <summary>The whole party (on joining, and again at each login): its host is the real player in it.</summary>
+    /// <summary>The whole party (on joining, and again at each login): its host is the real player in it, in a rival
+    /// raid its leader; the leader itself has no host.</summary>
     private void OnPartyAll(TeamTotalDetailInfo all)
     {
+        long raidLeader = RaidLeader;
+        bool leads = LeadsRaid;
         lock (_partyLock)
         {
-            if (_partyId == 0 && all.Info?.Info is { } info && all.MemberList.ContainsKey(_view.Self)
-                && all.MemberList.Keys.FirstOrDefault(m => !ctx.IsBot(m)) is var host and not 0)
+            if (_partyId == 0 && all.Info?.Info is { } info && all.MemberList.ContainsKey(_view.Self))
             {
-                _partyId = info.TeamId;
-                _partyHost = host;
-                _partyOver = false;
+                long host = all.MemberList.Keys.FirstOrDefault(m => !ctx.IsBot(m));
+                if (host == 0 && all.MemberList.ContainsKey(raidLeader)) host = raidLeader;
+                if (host != 0 || leads)
+                {
+                    _partyId = info.TeamId;
+                    _partyHost = host;
+                    _partyOver = false;
+                }
             }
         }
         foreach (var (role, card) in all.MemberList) OnHostCard(role, card);
@@ -174,8 +183,18 @@ public sealed partial class FakePlayer
         _hostDead = battle.PlayerLifeStatus == EPlayerLifeStatus.Dead;
     }
 
-    /// <summary>In a party with a real player: long errands end early so the party step can follow it.</summary>
-    private bool InParty { get { lock (_partyLock) return _partyHost != 0; } }
+    /// <summary>In a party with a real player, or a rival raid's (FakePlayer.Raid): it fights as a party member does.</summary>
+    private bool InParty
+    {
+        get
+        {
+            lock (_partyLock) if (_partyHost != 0) return true;
+            return LeadsRaid;
+        }
+    }
+
+    /// <summary>In a party or picked for a raid: long errands end early so the party or raid step can take over.</summary>
+    private bool Called => InParty || Volatile.Read(ref _raid) != null;
 
     private void ClearParty()
     {
@@ -231,6 +250,8 @@ public sealed partial class FakePlayer
         lock (_partyLock) hostDead = _hostDead;
         // A support class stays by its host (its buffs reach only so far); nobody fights on while the host lies dead.
         bool keepClose = hostDead || _support.Count > 0 && Distance(p) > SupportReach;
+        // On a PK map an enemy player at the host comes first (FakePlayer.Raid), the leader's mark if it is one.
+        if (!keepClose && (MarkedPlayer() ?? EnemyPlayer(p.X, p.Z)) is { } enemy) { await StrikePlayerAsync(enemy, ct); return true; }
         // The leader's mark first, else the monster nearest the bot around the host.
         var target = keepClose ? null : Marked() ?? _view.Monsters().Where(m => Apart(m.MovementInfo.Pos, p) <= HostReach)
             .OrderBy(m => Distance(m.MovementInfo.Pos)).FirstOrDefault();
@@ -246,6 +267,15 @@ public sealed partial class FakePlayer
         long marked;
         lock (_partyLock) marked = _hostTarget;
         return marked == 0 ? null : _view.Monsters().FirstOrDefault(m => (long)m.Uuid == marked);
+    }
+
+    /// <summary>The enemy player the party leader has locked, while the bot sees it in the enemy camp on a PK map.</summary>
+    private EntityBase? MarkedPlayer()
+    {
+        long marked;
+        lock (_partyLock) marked = _hostTarget;
+        return marked == 0 || !ctx.PkMaps.Contains(_scene) ? null
+            : _view.Players().FirstOrDefault(p => (long)p.Uuid == marked && p.EntityCamp == EnemyCamp && p.State != EntityState.Dead);
     }
 
     /// <summary>The bot's own life as its party card reports it (1 out of a party).</summary>

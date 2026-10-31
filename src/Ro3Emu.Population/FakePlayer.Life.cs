@@ -30,6 +30,7 @@ public sealed partial class FakePlayer
             await ClassItemsStepAsync(ct);
             await GearStepAsync(ct);
             await BoostStepAsync(ct);
+            if (await RaidStepAsync(ct)) continue;
             if (await PartyStepAsync(ct)) continue;
             if (await SiegeAsync(ct)) { await GoHomeAsync(ct); continue; }
             switch (persona)
@@ -82,7 +83,7 @@ public sealed partial class FakePlayer
     {
         var spot = Home.Spots[_random.Next(Home.Spots.Count)];
         await GoAsync(Jitter(spot), ct);
-        for (int i = _random.Next(3, 10); i > 0 && !ct.IsCancellationRequested && !InParty; i--)
+        for (int i = _random.Next(3, 10); i > 0 && !ct.IsCancellationRequested && !Called; i--)
         {
             await PauseAsync(20, 60, ct);
             if (_random.NextDouble() < 0.3) await FaceAsync(_random.Next(360), ct);
@@ -94,12 +95,12 @@ public sealed partial class FakePlayer
     {
         await TravelAsync(Home.Fields[_random.Next(Home.Fields.Count)], ct);
         var until = DateTime.UtcNow.AddMinutes(_random.Next(8, 20));
-        while (DateTime.UtcNow < until && !ct.IsCancellationRequested && !InParty) await FightOnceAsync(ct);
-        if (InParty) return; // the party step takes the bot where its host is
+        while (DateTime.UtcNow < until && !ct.IsCancellationRequested && !Called) await FightOnceAsync(ct);
+        if (Called) return; // the party or raid step takes the bot where its host is
         await TravelAsync(Home.SceneEntry, ct);
         // Life and SP come back on their own during the rest (no GM heal: a GM line holds the whole realm).
         var rest = DateTime.UtcNow.AddMinutes(_random.Next(2, 5));
-        while (DateTime.UtcNow < rest && !ct.IsCancellationRequested && !InParty) await StrollAsync(ct);
+        while (DateTime.UtcNow < rest && !ct.IsCancellationRequested && !Called) await StrollAsync(ct);
     }
 
     /// <summary>The nearest monster in view: walk up to it and swing (31029 lock, 31102 cast, as the load test's fighter).</summary>
